@@ -4,7 +4,7 @@ Teaching Assistant Recruitment System for BUPT International School - EBU6304 Gr
 | Name (姓名) | QMID (学号) | GitHub Username |
 | :--- | :--- | :--- |
 | [Student Zhang Zhen] | [QMID A] | [@Username A] |
-| [Student Yifan Wu] | [QMID B] | [@Username B] |
+| [Student Yifan Wu] | [231222534] | [@wyfbean] |
 | [Student Boning Mai] | [QMID C] | [@Username C] |
 | [Student Yunhe Zhang] | 231221205 | Cwleoniszyh |
 | [Student Zaiyou Wang] | [QMID E] | [@Username E] |
