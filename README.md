@@ -6,6 +6,6 @@ Teaching Assistant Recruitment System for BUPT International School - EBU6304 Gr
 | [Student Zhang Zhen] | [QMID A] | [@Username A] |
 | [Student Yifan Wu] | [QMID B] | [@Username B] |
 | [Student Boning Mai] | [QMID C] | [@Username C] |
-| [Student Yunhe Zhang] | 231221205 | Cwleoniszyh |
+| [Student Yunhe Zhang] | [QMID D] | [@Username D] |
 | [Student Zaiyou Wang] | [QMID E] | [@Username E] |
 | [Student Yuqing Shen] | [QMID F] | [@Username F] |
