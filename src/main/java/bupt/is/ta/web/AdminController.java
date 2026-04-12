@@ -117,6 +117,20 @@ public class AdminController extends HttpServlet {
         req.setAttribute("dashscopeApiKey", c.getDashscopeApiKey());
         req.setAttribute("dashscopeEndpoint", c.getDashscopeEndpoint());
         req.setAttribute("dashscopeModel", c.getDashscopeModel());
+
+        // Resolve and expose the actual on-disk paths so the admin can see where data lives.
+        java.nio.file.Path baseDir = store.getBaseDir();
+        req.setAttribute("dataBaseDir", baseDir != null ? baseDir.toAbsolutePath().toString() : "N/A");
+
+        String cvAbsPath;
+        if ("USER_HOME".equalsIgnoreCase(c.getStorageMode())) {
+            cvAbsPath = java.nio.file.Path.of(System.getProperty("user.home"), "ebu_data", "cvs").toAbsolutePath().toString();
+        } else {
+            String realBase = req.getServletContext().getRealPath(c.getCvRelativePath());
+            cvAbsPath = realBase != null ? realBase : c.getCvRelativePath() + " (relative to webapp root)";
+        }
+        req.setAttribute("cvAbsPath", cvAbsPath);
+
         req.getRequestDispatcher("/admin/config.jsp").forward(req, resp);
     }
 

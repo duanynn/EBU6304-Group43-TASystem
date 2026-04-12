@@ -265,6 +265,10 @@ public class DataStore {
         }
     }
 
+    public synchronized Path getBaseDir() {
+        return baseDir;
+    }
+
     public synchronized List<User> getUsers() {
         return Collections.unmodifiableList(users);
     }
