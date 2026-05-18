@@ -198,4 +198,16 @@ class SkillMatchServiceTest {
 
         assertEquals(1.0, result.getScore(), 1e-9);
     }
+
+    @Test
+    void skillMatching_isCaseInsensitiveButKeepsDisplayNames() {
+        var result = service.match(
+                List.of("Java", "Git"),
+                List.of("java"),
+                "", "", false);
+
+        assertEquals(0.5, result.getScore(), 1e-9);
+        assertTrue(result.getMatchedSkills().contains("Java"));
+        assertTrue(result.getMissingSkills().contains("Git"));
+    }
 }

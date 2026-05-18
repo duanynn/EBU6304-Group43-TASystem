@@ -3,6 +3,17 @@
 <%@ page import="bupt.is.ta.web.TAController" %>
 <%@ page import="bupt.is.ta.service.SkillMatchService" %>
 <%@ page import="java.util.List" %>
+<%!
+    private String h(Object value) {
+        if (value == null) return "";
+        return String.valueOf(value)
+                .replace("&", "&amp;")
+                .replace("<", "&lt;")
+                .replace(">", "&gt;")
+                .replace("\"", "&quot;")
+                .replace("'", "&#39;");
+    }
+%>
 <%
     User current = (User) session.getAttribute("currentUser");
     SkillMatchService.MatchResult profileMatch = (SkillMatchService.MatchResult) request.getAttribute("profileMatch");
@@ -141,17 +152,37 @@
         <% if (profileNeedsConfirm != null && profileNeedsConfirm) { %>
             <p class="muted">You recently updated your profile. Please click "Confirm Profile Update" first to regenerate AI analysis.</p>
         <% } else if (jobAdviceList != null && !jobAdviceList.isEmpty()) { %>
-            <% for (TAController.JobAdviceView item : jobAdviceList) { %>
+            <% for (TAController.JobAdviceView item : jobAdviceList) {
+                int itemScore = (int) Math.round(item.getMatch().getAiScore());
+                String itemClass = itemScore >= 75 ? "fit-high" : (itemScore >= 45 ? "fit-mid" : "fit-low");
+                List<String> requiredSkills = item.getJob().getRequiredSkills() == null ? List.of() : item.getJob().getRequiredSkills();
+                List<String> gaps = item.getMatch().getAiGaps() == null ? List.of() : item.getMatch().getAiGaps();
+                if (gaps.isEmpty()) gaps = item.getMatch().getMissingSkills() == null ? List.of() : item.getMatch().getMissingSkills();
+            %>
                 <div class="job-advice-card">
                     <div class="job-advice-head">
-                        <h4><%= item.getJob().getCourseName() == null ? "Unnamed Position" : item.getJob().getCourseName() %></h4>
-                        <span class="fit-pill <%= item.getMatch().getAiScore() >= 75 ? "fit-high" : (item.getMatch().getAiScore() >= 45 ? "fit-mid" : "fit-low") %>">
-                            Fit <%= Math.round(item.getMatch().getAiScore()) %>%
-                        </span>
+                        <h4><%= h(item.getJob().getCourseName() == null ? "Unnamed Position" : item.getJob().getCourseName()) %></h4>
+                        <span class="fit-pill <%= itemClass %>">Fit <%= itemScore %>%</span>
                     </div>
-                    <p><strong>Requirements:</strong> <%= item.getJob().getRequiredSkills() == null || item.getJob().getRequiredSkills().isEmpty() ? "N/A" : String.join(" / ", item.getJob().getRequiredSkills()) %></p>
-                    <p><strong>Fit Summary:</strong> <%= item.getMatch().getAiFitSummary() == null || item.getMatch().getAiFitSummary().isBlank() ? "N/A" : item.getMatch().getAiFitSummary() %></p>
-                    <p><strong>Improvement Advice:</strong> <%= item.getMatch().getAiAdvice() == null || item.getMatch().getAiAdvice().isBlank() ? "N/A" : item.getMatch().getAiAdvice() %></p>
+                    <span class="score-meter"><span class="<%= itemClass %>" style="width:<%= itemScore %>%"></span></span>
+                    <div class="chip-wrap compact">
+                        <% if (!requiredSkills.isEmpty()) {
+                            for (String skill : requiredSkills) { %>
+                        <span class="chip"><%= h(skill) %></span>
+                        <% }} else { %>
+                        <span class="muted">N/A</span>
+                        <% } %>
+                    </div>
+                    <p><strong>Fit Summary:</strong> <%= h(item.getMatch().getAiFitSummary() == null || item.getMatch().getAiFitSummary().isBlank() ? "N/A" : item.getMatch().getAiFitSummary()) %></p>
+                    <p><strong>Improvement Advice:</strong> <%= h(item.getMatch().getAiAdvice() == null || item.getMatch().getAiAdvice().isBlank() ? "N/A" : item.getMatch().getAiAdvice()) %></p>
+                    <div class="chip-wrap compact">
+                        <% if (!gaps.isEmpty()) {
+                            for (String gap : gaps) { %>
+                        <span class="chip chip-gap"><%= h(gap) %></span>
+                        <% }} else { %>
+                        <span class="chip chip-success">No obvious gap</span>
+                        <% } %>
+                    </div>
                     <p class="muted">Advice Source: <%= item.getMatch().isAiGenerated() ? "Real-time AI" : "Local fallback" %></p>
                 </div>
             <% } %>

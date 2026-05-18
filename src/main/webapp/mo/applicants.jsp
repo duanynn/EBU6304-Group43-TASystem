@@ -5,6 +5,17 @@
 <%@ page import="bupt.is.ta.model.Job" %>
 <%@ page import="bupt.is.ta.model.User" %>
 <%@ page import="bupt.is.ta.service.SkillMatchService" %>
+<%!
+    private String h(Object value) {
+        if (value == null) return "";
+        return String.valueOf(value)
+                .replace("&", "&amp;")
+                .replace("<", "&lt;")
+                .replace(">", "&gt;")
+                .replace("\"", "&quot;")
+                .replace("'", "&#39;");
+    }
+%>
 <%
     Job job = (Job) request.getAttribute("job");
     List<Application> applications = (List<Application>) request.getAttribute("applications");
@@ -21,21 +32,27 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Applicants - <%= job.getCourseName() %></title>
+    <title>Applicants - <%= h(job.getCourseName()) %></title>
     <link rel="stylesheet" href="<%= request.getContextPath() %>/css/style.css">
 </head>
 <body>
 <header class="app-header">
     <h1>TA Recruitment System - Instructor Workspace</h1>
-    <span class="user-info"><%= current != null ? current.getName() : "" %> <a href="<%= request.getContextPath() %>/login">Logout</a></span>
+    <span class="user-info"><%= h(current != null ? current.getName() : "") %> <a href="<%= request.getContextPath() %>/login">Logout</a></span>
 </header>
 <nav class="app-nav">
     <a href="<%= request.getContextPath() %>/mo/dashboard">My Jobs</a>
     <a href="<%= request.getContextPath() %>/mo/postJob">Post New Job</a>
 </nav>
 <main class="app-main">
-    <a href="<%= request.getContextPath() %>/mo/dashboard" class="back-link">← Back to Job List</a>
-    <h2 class="page-title">Applicants: <%= job.getCourseName() %></h2>
+    <a href="<%= request.getContextPath() %>/mo/dashboard" class="back-link">Back to Job List</a>
+    <div class="page-head">
+        <div>
+            <h2 class="page-title">Applicants</h2>
+            <p class="page-subtitle"><%= h(job.getCourseName()) %> - ranked by fit score</p>
+        </div>
+        <span class="status-tag <%= job.isOpen() ? "status-open" : "status-closed" %>"><%= job.isOpen() ? "Open" : "Closed" %></span>
+    </div>
     <div class="section">
         <div class="table-tools">
             <label>Status
@@ -66,14 +83,19 @@
                     String badge = pct >= 80 ? "High Match" : (pct < 50 ? "Low Match" : "Match");
                 %>
                 <tr data-status="<%= app.getStatus() %>"
-                    data-keyword="<%= ((stu != null ? stu.getName() : "") + " " + app.getStudentId()).toLowerCase() %>">
-                    <td><%= app.getStudentId() %></td>
-                    <td><%= stu != null ? stu.getName() : "-" %></td>
-                    <td><%= stu != null && stu.getAvailableTime() != null && !stu.getAvailableTime().isBlank() ? stu.getAvailableTime() : "-" %></td>
-                    <td><span class="<%= badgeClass %>"><%= pct %>% (<%= badge %>)</span></td>
+                    data-keyword="<%= h(((stu != null ? stu.getName() : "") + " " + app.getStudentId()).toLowerCase()) %>">
+                    <td><%= h(app.getStudentId()) %></td>
+                    <td><%= h(stu != null ? stu.getName() : "-") %></td>
+                    <td><%= h(stu != null && stu.getAvailableTime() != null && !stu.getAvailableTime().isBlank() ? stu.getAvailableTime() : "-") %></td>
+                    <td>
+                        <div class="score-stack">
+                            <span class="<%= badgeClass %>"><%= pct %>% (<%= badge %>)</span>
+                            <span class="mini-meter"><span style="width:<%= pct %>%"></span></span>
+                        </div>
+                    </td>
                     <td>
                         <% if (stu != null && stu.getCvPath() != null && !stu.getCvPath().isBlank()) { %>
-                        <a class="btn btn-small" href="<%= request.getContextPath() %>/mo/cv/view?studentId=<%= app.getStudentId() %>&jobId=<%= job.getId() %>">View Web CV</a>
+                        <a class="btn btn-small" href="<%= request.getContextPath() %>/mo/cv/view?studentId=<%= h(app.getStudentId()) %>&jobId=<%= h(job.getId()) %>">View Web CV</a>
                         <% } else { %>
                         -
                         <% } %>
@@ -82,17 +104,17 @@
                     <td>
                         <% if (app.getStatus() != Application.Status.ACCEPTED && app.getStatus() != Application.Status.REJECTED) { %>
                         <form method="post" action="<%= request.getContextPath() %>/mo/updateStatus" style="display:inline">
-                            <input type="hidden" name="applicationId" value="<%= app.getId() %>"/>
+                            <input type="hidden" name="applicationId" value="<%= h(app.getId()) %>"/>
                             <input type="hidden" name="status" value="ACCEPTED"/>
                             <button type="submit" class="btn btn-small btn-success">Accept</button>
                         </form>
                         <form method="post" action="<%= request.getContextPath() %>/mo/updateStatus" style="display:inline">
-                            <input type="hidden" name="applicationId" value="<%= app.getId() %>"/>
+                            <input type="hidden" name="applicationId" value="<%= h(app.getId()) %>"/>
                             <input type="hidden" name="status" value="REJECTED"/>
                             <button type="submit" class="btn btn-small btn-danger">Reject</button>
                         </form>
                         <form method="post" action="<%= request.getContextPath() %>/mo/updateStatus" style="display:inline">
-                            <input type="hidden" name="applicationId" value="<%= app.getId() %>"/>
+                            <input type="hidden" name="applicationId" value="<%= h(app.getId()) %>"/>
                             <input type="hidden" name="status" value="INTERVIEWING"/>
                             <button type="submit" class="btn btn-small btn-secondary">Move to Interview</button>
                         </form>

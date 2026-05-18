@@ -21,7 +21,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 
-@WebServlet({"/mo/dashboard", "/mo/postJob", "/mo/applicants", "/mo/updateStatus", "/mo/cv/view"})
+@WebServlet({"/mo/dashboard", "/mo/postJob", "/mo/applicants", "/mo/updateStatus", "/mo/updateJobStatus", "/mo/cv/view"})
 public class MOController extends HttpServlet {
 
     private final JobService jobService = new JobService();
@@ -94,6 +94,7 @@ public class MOController extends HttpServlet {
             switch (path) {
                 case "/mo/postJob" -> handlePostJob(req, resp, current);
                 case "/mo/updateStatus" -> handleUpdateStatus(req, resp);
+                case "/mo/updateJobStatus" -> handleUpdateJobStatus(req, resp, current);
                 default -> resp.sendError(HttpServletResponse.SC_METHOD_NOT_ALLOWED);
             }
         } catch (Exception e) {
@@ -123,6 +124,23 @@ public class MOController extends HttpServlet {
         job.setRequiredSkills(skills);
         job.setRequiredWorkTime(requiredWorkTime);
 
+        jobService.save(job);
+        resp.sendRedirect(req.getContextPath() + "/mo/dashboard");
+    }
+
+    private void handleUpdateJobStatus(HttpServletRequest req, HttpServletResponse resp, User current) throws Exception {
+        String jobId = req.getParameter("jobId");
+        String openValue = req.getParameter("open");
+        Job job = jobService.findById(jobId).orElse(null);
+        if (job == null) {
+            resp.sendError(HttpServletResponse.SC_BAD_REQUEST, "Job not found");
+            return;
+        }
+        if (current == null || !current.getId().equals(job.getMoId())) {
+            resp.sendError(HttpServletResponse.SC_FORBIDDEN, "You can only update your own jobs");
+            return;
+        }
+        job.setOpen(Boolean.parseBoolean(openValue));
         jobService.save(job);
         resp.sendRedirect(req.getContextPath() + "/mo/dashboard");
     }

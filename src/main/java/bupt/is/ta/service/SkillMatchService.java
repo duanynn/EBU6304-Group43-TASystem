@@ -3,8 +3,12 @@ package bupt.is.ta.service;
 import bupt.is.ta.model.Config;
 import bupt.is.ta.store.DataStore;
 
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.HashSet;
+import java.util.Locale;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 public class SkillMatchService {
@@ -105,21 +109,30 @@ public class SkillMatchService {
     }
 
     public MatchResult match(List<String> required, List<String> student, String profileSummary, String rawCvText, boolean enableAi) {
-        Set<String> requiredSet = new HashSet<>(required);
-        Set<String> studentSet = new HashSet<>(student);
+        List<String> safeRequired = required == null ? List.of() : required;
+        List<String> safeStudent = student == null ? List.of() : student;
+        Map<String, String> requiredByKey = normalizeSkills(safeRequired);
+        Map<String, String> studentByKey = normalizeSkills(safeStudent);
 
-        Set<String> matched = new HashSet<>(requiredSet);
-        matched.retainAll(studentSet);
+        Set<String> requiredSet = new HashSet<>(requiredByKey.keySet());
+        Set<String> studentSet = new HashSet<>(studentByKey.keySet());
 
-        Set<String> missing = new HashSet<>(requiredSet);
-        missing.removeAll(studentSet);
+        List<String> matched = new ArrayList<>();
+        List<String> missing = new ArrayList<>();
+        for (Map.Entry<String, String> entry : requiredByKey.entrySet()) {
+            if (studentSet.contains(entry.getKey())) {
+                matched.add(entry.getValue());
+            } else {
+                missing.add(entry.getValue());
+            }
+        }
 
         double score = requiredSet.isEmpty()
                 ? 1.0
                 : (double) matched.size() / (double) requiredSet.size();
 
         AiAdviceService.AiAnalysisResult aiResult = enableAi
-                ? aiAdviceService.analyzeJobFit(List.copyOf(requiredSet), List.copyOf(studentSet), List.copyOf(missing), profileSummary, rawCvText)
+                ? aiAdviceService.analyzeJobFit(List.copyOf(requiredByKey.values()), List.copyOf(studentByKey.values()), List.copyOf(missing), profileSummary, rawCvText)
                 : new AiAdviceService.AiAnalysisResult(null, "", List.of(), List.of(), "", false);
         String aiAdvice = aiResult.getAdvice();
         List<String> aiStrengths = aiResult.getStrengths();
@@ -143,8 +156,8 @@ public class SkillMatchService {
         }
 
         return new MatchResult(
-                List.copyOf(requiredSet),
-                List.copyOf(studentSet),
+                List.copyOf(requiredByKey.values()),
+                List.copyOf(studentByKey.values()),
                 List.copyOf(matched),
                 List.copyOf(missing),
                 score,
@@ -155,6 +168,21 @@ public class SkillMatchService {
                 aiFitSummary,
                 aiGenerated
         );
+    }
+
+    private Map<String, String> normalizeSkills(List<String> skills) {
+        Map<String, String> normalized = new LinkedHashMap<>();
+        if (skills == null) {
+            return normalized;
+        }
+        for (String skill : skills) {
+            if (skill == null) continue;
+            String display = skill.trim();
+            if (display.isEmpty()) continue;
+            String key = display.toLowerCase(Locale.ROOT);
+            normalized.putIfAbsent(key, display);
+        }
+        return normalized;
     }
 
     private String buildAdvice(List<String> missingSkills, double score) {

@@ -21,8 +21,10 @@ import jakarta.servlet.http.HttpSession;
 
 import java.io.IOException;
 import java.nio.file.Path;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -74,8 +76,13 @@ public class TAController extends HttpServlet {
 
         switch (path) {
             case "/ta/dashboard", "/ta/jobs" -> {
-                List<Job> jobs = jobService.listOpenJobs();
-                req.setAttribute("jobs", jobs);
+                String query = trim(req.getParameter("q"));
+                String sort = trim(req.getParameter("sort"));
+                JobService.JobSearchResult searchResult = jobService.searchOpenJobs(query);
+                List<Job> jobs = new ArrayList<>(searchResult.getJobs());
+                if (sort.isBlank()) {
+                    sort = searchResult.isSearched() ? "relevance" : "newest";
+                }
                 Map<String, Application.Status> appliedJobStatus = applicationService.listByStudent(current.getId()).stream()
                         .collect(Collectors.toMap(Application::getJobId, Application::getStatus, (a, b) -> a));
                 req.setAttribute("appliedJobStatus", appliedJobStatus);
@@ -100,7 +107,15 @@ public class TAController extends HttpServlet {
                     }
                     fitScores.put(job.getId(), score);
                 }
+                sortJobsForBoard(jobs, sort, fitScores, searchResult.getNormalizedScores());
+                req.setAttribute("jobs", jobs);
                 req.setAttribute("fitScores", fitScores);
+                req.setAttribute("searchQuery", query);
+                req.setAttribute("searchSort", sort);
+                req.setAttribute("searchPerformed", searchResult.isSearched());
+                req.setAttribute("searchScores", searchResult.getNormalizedScores());
+                req.setAttribute("totalOpenJobs", searchResult.getTotalOpenJobs());
+                req.setAttribute("resultCount", jobs.size());
                 req.setAttribute("triggerBackgroundAi", needsBackgroundAiRefresh(current));
                 req.getRequestDispatcher("/ta/jobBoard.jsp").forward(req, resp);
             }
@@ -133,6 +148,30 @@ public class TAController extends HttpServlet {
             }
             default -> resp.sendError(HttpServletResponse.SC_NOT_FOUND);
         }
+    }
+
+    private void sortJobsForBoard(List<Job> jobs,
+                                  String sort,
+                                  Map<String, Integer> fitScores,
+                                  Map<String, Integer> searchScores) {
+        if (jobs == null || jobs.size() < 2) {
+            return;
+        }
+        if ("fit".equalsIgnoreCase(sort)) {
+            jobs.sort(Comparator
+                    .comparingInt((Job job) -> fitScores.getOrDefault(job.getId(), 0)).reversed()
+                    .thenComparing(Comparator.comparing(TAController::createdAtOrEpoch).reversed()));
+        } else if ("newest".equalsIgnoreCase(sort)) {
+            jobs.sort(Comparator.comparing(TAController::createdAtOrEpoch).reversed());
+        } else if ("relevance".equalsIgnoreCase(sort)) {
+            jobs.sort(Comparator
+                    .comparingInt((Job job) -> searchScores.getOrDefault(job.getId(), 0)).reversed()
+                    .thenComparing(Comparator.comparing(TAController::createdAtOrEpoch).reversed()));
+        }
+    }
+
+    private static Instant createdAtOrEpoch(Job job) {
+        return job == null || job.getCreatedAt() == null ? Instant.EPOCH : job.getCreatedAt();
     }
 
     @Override

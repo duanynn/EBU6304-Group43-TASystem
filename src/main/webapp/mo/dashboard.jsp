@@ -2,10 +2,23 @@
 <%@ page import="java.util.List" %>
 <%@ page import="bupt.is.ta.model.Job" %>
 <%@ page import="bupt.is.ta.model.User" %>
+<%!
+    private String h(Object value) {
+        if (value == null) return "";
+        return String.valueOf(value)
+                .replace("&", "&amp;")
+                .replace("<", "&lt;")
+                .replace(">", "&gt;")
+                .replace("\"", "&quot;")
+                .replace("'", "&#39;");
+    }
+%>
 <%
     List<Job> jobs = (List<Job>) request.getAttribute("jobs");
     if (jobs == null) jobs = List.of();
     User current = (User) session.getAttribute("currentUser");
+    long openCount = jobs.stream().filter(Job::isOpen).count();
+    long closedCount = jobs.size() - openCount;
 %>
 <!DOCTYPE html>
 <html lang="en">
@@ -18,14 +31,20 @@
 <body>
 <header class="app-header">
     <h1>TA Recruitment System - Instructor Workspace</h1>
-    <span class="user-info"><%= current != null ? current.getName() : "" %> <a href="<%= request.getContextPath() %>/login">Logout</a></span>
+    <span class="user-info"><%= h(current != null ? current.getName() : "") %> <a href="<%= request.getContextPath() %>/login">Logout</a></span>
 </header>
 <nav class="app-nav">
     <a href="<%= request.getContextPath() %>/mo/dashboard">My Jobs</a>
     <a href="<%= request.getContextPath() %>/mo/postJob">Post New Job</a>
 </nav>
 <main class="app-main">
-    <h2 class="page-title">Jobs I Posted</h2>
+    <div class="page-head">
+        <div>
+            <h2 class="page-title">Jobs I Posted</h2>
+            <p class="page-subtitle"><%= openCount %> open / <%= closedCount %> closed</p>
+        </div>
+        <a class="btn" href="<%= request.getContextPath() %>/mo/postJob">Post New Job</a>
+    </div>
     <div class="section">
         <div class="table-tools">
             <label>Status
@@ -53,14 +72,21 @@
             <tbody>
                 <% for (Job j : jobs) { %>
                 <tr data-open="<%= j.isOpen() ? "open" : "closed" %>"
-                    data-keyword="<%= ((j.getCourseName() == null ? "" : j.getCourseName()) + " " + (j.getRequiredSkills() == null ? "" : String.join(" ", j.getRequiredSkills()))).toLowerCase() %>">
-                    <td><%= j.getCourseName() %></td>
+                    data-keyword="<%= h(((j.getCourseName() == null ? "" : j.getCourseName()) + " " + (j.getRequiredSkills() == null ? "" : String.join(" ", j.getRequiredSkills()))).toLowerCase()) %>">
+                    <td><%= h(j.getCourseName()) %></td>
                     <td><%= j.getRequiredCount() %></td>
-                    <td><%= j.getRequiredSkills() != null ? String.join(", ", j.getRequiredSkills()) : "-" %></td>
-                    <td><%= j.getRequiredWorkTime() == null || j.getRequiredWorkTime().isBlank() ? "-" : j.getRequiredWorkTime() %></td>
+                    <td><%= h(j.getRequiredSkills() != null ? String.join(", ", j.getRequiredSkills()) : "-") %></td>
+                    <td><%= h(j.getRequiredWorkTime() == null || j.getRequiredWorkTime().isBlank() ? "-" : j.getRequiredWorkTime()) %></td>
                     <td><span class="status-tag <%= j.isOpen() ? "status-open" : "status-closed" %>"><%= j.isOpen() ? "Open" : "Closed" %></span></td>
                     <td>
-                        <a href="<%= request.getContextPath() %>/mo/applicants?jobId=<%= j.getId() %>" class="btn btn-small">View Applicants</a>
+                        <a href="<%= request.getContextPath() %>/mo/applicants?jobId=<%= h(j.getId()) %>" class="btn btn-small">View Applicants</a>
+                        <form method="post" action="<%= request.getContextPath() %>/mo/updateJobStatus" style="display:inline">
+                            <input type="hidden" name="jobId" value="<%= h(j.getId()) %>">
+                            <input type="hidden" name="open" value="<%= j.isOpen() ? "false" : "true" %>">
+                            <button type="submit" class="btn btn-small <%= j.isOpen() ? "btn-secondary" : "btn-success" %>">
+                                <%= j.isOpen() ? "Close" : "Reopen" %>
+                            </button>
+                        </form>
                     </td>
                 </tr>
                 <% } %>

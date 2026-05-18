@@ -154,6 +154,54 @@ class JobServiceTest {
         assertTrue(found.get().getRequiredSkills().containsAll(List.of("Java", "Docker", "SQL")));
     }
 
+    @Test
+    void searchOpenJobs_blankQuery_returnsOpenJobs() throws Exception {
+        String id = uid();
+        service.save(buildJob(id, "MO-SEARCH-BLANK", true));
+
+        JobService.JobSearchResult result = service.searchOpenJobs("   ");
+
+        assertFalse(result.isSearched());
+        assertTrue(result.getJobs().stream().anyMatch(j -> id.equals(j.getId())));
+        assertTrue(result.getJobs().stream().allMatch(Job::isOpen));
+    }
+
+    @Test
+    void searchOpenJobs_usesBm25AcrossCourseSkillsAndTime() throws Exception {
+        String targetId = uid();
+        String otherId = uid();
+        Job target = buildJob(targetId, "MO-BM25", true);
+        target.setCourseName("Distributed Systems Lab");
+        target.setRequiredSkills(List.of("Java", "Concurrency", "Linux"));
+        target.setRequiredWorkTime("Friday afternoon lab");
+        service.save(target);
+
+        Job other = buildJob(otherId, "MO-BM25", true);
+        other.setCourseName("Academic Writing Support");
+        other.setRequiredSkills(List.of("Proofreading", "Presentation"));
+        other.setRequiredWorkTime("Monday morning");
+        service.save(other);
+
+        JobService.JobSearchResult result = service.searchOpenJobs("java friday concurrency");
+
+        assertTrue(result.isSearched());
+        assertFalse(result.getJobs().isEmpty());
+        assertEquals(targetId, result.getJobs().get(0).getId());
+        assertTrue(result.getNormalizedScores().get(targetId) >= result.getNormalizedScores().getOrDefault(otherId, 0));
+    }
+
+    @Test
+    void updateOpenState_changesAvailability() throws Exception {
+        String id = uid();
+        service.save(buildJob(id, "MO-STATE", true));
+
+        service.updateOpenState(id, false);
+
+        Optional<Job> found = service.findById(id);
+        assertTrue(found.isPresent());
+        assertFalse(found.get().isOpen());
+    }
+
     // ── Helpers ───────────────────────────────────────────────────────────
 
     private String uid() {
