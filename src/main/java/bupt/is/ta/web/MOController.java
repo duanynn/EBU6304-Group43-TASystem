@@ -4,9 +4,11 @@ import bupt.is.ta.model.Application;
 import bupt.is.ta.model.Job;
 import bupt.is.ta.model.User;
 import bupt.is.ta.model.UserProfile;
+import bupt.is.ta.service.AiAdviceService;
 import bupt.is.ta.service.ApplicationService;
 import bupt.is.ta.service.JobService;
 import bupt.is.ta.service.SkillMatchService;
+import com.google.gson.Gson;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.annotation.WebServlet;
 import jakarta.servlet.http.HttpServlet;
@@ -21,12 +23,15 @@ import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 
-@WebServlet({"/mo/dashboard", "/mo/postJob", "/mo/applicants", "/mo/updateStatus", "/mo/updateJobStatus", "/mo/cv/view"})
+@WebServlet({"/mo/dashboard", "/mo/postJob", "/mo/generateJobDescription", "/mo/applicants", "/mo/updateStatus", "/mo/updateJobStatus", "/mo/cv/view"})
 public class MOController extends HttpServlet {
+
+    private static final Gson GSON = new Gson();
 
     private final JobService jobService = new JobService();
     private final ApplicationService applicationService = new ApplicationService();
     private final SkillMatchService skillMatchService = new SkillMatchService();
+    private final AiAdviceService aiAdviceService = new AiAdviceService();
 
     @Override
     protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
@@ -93,6 +98,7 @@ public class MOController extends HttpServlet {
         try {
             switch (path) {
                 case "/mo/postJob" -> handlePostJob(req, resp, current);
+                case "/mo/generateJobDescription" -> handleGenerateJobDescription(req, resp);
                 case "/mo/updateStatus" -> handleUpdateStatus(req, resp);
                 case "/mo/updateJobStatus" -> handleUpdateJobStatus(req, resp, current);
                 default -> resp.sendError(HttpServletResponse.SC_METHOD_NOT_ALLOWED);
@@ -104,18 +110,11 @@ public class MOController extends HttpServlet {
 
     private void handlePostJob(HttpServletRequest req, HttpServletResponse resp, User current) throws Exception {
         String courseName = req.getParameter("courseName");
-        int requiredCount = Integer.parseInt(req.getParameter("requiredCount"));
+        int requiredCount = parsePositiveInt(req.getParameter("requiredCount"), 1);
         String[] skillsParam = req.getParameterValues("requiredSkills");
         String requiredWorkTime = req.getParameter("requiredWorkTime");
-        List<String> skills = new ArrayList<>();
-        if (skillsParam != null) {
-            for (String s : skillsParam) {
-                for (String part : s.split("[,，\\s]+")) {
-                    String t = part.trim();
-                    if (!t.isEmpty()) skills.add(t);
-                }
-            }
-        }
+        String description = req.getParameter("description");
+        List<String> skills = parseSkills(skillsParam);
 
         Job job = new Job();
         job.setCourseName(courseName);
@@ -123,9 +122,45 @@ public class MOController extends HttpServlet {
         job.setRequiredCount(requiredCount);
         job.setRequiredSkills(skills);
         job.setRequiredWorkTime(requiredWorkTime);
+        job.setDescription(description);
 
         jobService.save(job);
         resp.sendRedirect(req.getContextPath() + "/mo/dashboard");
+    }
+
+    private void handleGenerateJobDescription(HttpServletRequest req, HttpServletResponse resp) throws IOException {
+        String courseName = req.getParameter("courseName");
+        int requiredCount = parsePositiveInt(req.getParameter("requiredCount"), 1);
+        List<String> skills = parseSkills(req.getParameterValues("requiredSkills"));
+        String requiredWorkTime = req.getParameter("requiredWorkTime");
+
+        String description = aiAdviceService.generateJobDescription(courseName, requiredCount, skills, requiredWorkTime);
+        resp.setContentType("application/json;charset=UTF-8");
+        resp.getWriter().write(GSON.toJson(Map.of("description", description)));
+    }
+
+    private List<String> parseSkills(String[] skillsParam) {
+        List<String> skills = new ArrayList<>();
+        if (skillsParam == null) {
+            return skills;
+        }
+        for (String s : skillsParam) {
+            if (s == null) continue;
+            for (String part : s.split("[,，\\s]+")) {
+                String t = part.trim();
+                if (!t.isEmpty()) skills.add(t);
+            }
+        }
+        return skills;
+    }
+
+    private int parsePositiveInt(String value, int fallback) {
+        try {
+            int parsed = Integer.parseInt(value);
+            return Math.max(1, parsed);
+        } catch (Exception e) {
+            return fallback;
+        }
     }
 
     private void handleUpdateJobStatus(HttpServletRequest req, HttpServletResponse resp, User current) throws Exception {

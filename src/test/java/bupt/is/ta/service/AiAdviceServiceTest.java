@@ -116,6 +116,19 @@ class AiAdviceServiceTest {
         assertNotNull(advice);
     }
 
+    @Test
+    void generateJobDescription_returnsUsableFallbackWithoutApi() {
+        String description = service.generateJobDescription(
+                "Software Engineering",
+                2,
+                List.of("Java", "Git"),
+                "8 hrs weekly");
+
+        assertNotNull(description);
+        assertFalse(description.isBlank());
+        assertTrue(description.length() >= 60);
+    }
+
     // ── analyzeJobFit — always returns a non-null result ─────────────────
 
     @Test

@@ -181,6 +181,7 @@ public class JobService {
     private static List<String> tokenizeJob(Job job) {
         List<String> tokens = new ArrayList<>();
         addTokens(tokens, job.getCourseName(), 3);
+        addTokens(tokens, job.getDescription(), 2);
         addTokens(tokens, job.getRequiredWorkTime(), 1);
         if (job.getRequiredSkills() != null) {
             for (String skill : job.getRequiredSkills()) {

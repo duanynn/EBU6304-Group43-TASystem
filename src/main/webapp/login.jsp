@@ -5,7 +5,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>TA Recruitment System - Login</title>
-    <link rel="stylesheet" href="<%= request.getContextPath() %>/css/style.css">
+    <link rel="stylesheet" href="<%= request.getContextPath() %>/css/style.css?v=20260518-ui2">
 </head>
 <body class="login-page">
 <div class="login-wrap">

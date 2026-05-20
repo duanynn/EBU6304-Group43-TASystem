@@ -158,6 +158,8 @@ public class DataStore {
         job.setMoId("0000000001");
         job.setRequiredCount(2);
         job.setRequiredSkills(List.of("Java", "Git"));
+        job.setRequiredWorkTime("8 hrs weekly");
+        job.setDescription("Support Software Engineering tutorials, lab exercises, assignment guidance, and student Q&A. Candidates should be comfortable with Java development, Git workflows, and clear technical communication.");
         job.setOpen(true);
         jobs.add(job);
     }

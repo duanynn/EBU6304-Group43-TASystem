@@ -11,6 +11,7 @@ public class Job {
     private int requiredCount;
     private List<String> requiredSkills = new ArrayList<>();
     private String requiredWorkTime = ""; // required time slots/duration
+    private String description = "";
     private boolean open = true;
     private Instant createdAt = Instant.now();
 
@@ -60,6 +61,14 @@ public class Job {
 
     public void setRequiredWorkTime(String requiredWorkTime) {
         this.requiredWorkTime = requiredWorkTime == null ? "" : requiredWorkTime.trim();
+    }
+
+    public String getDescription() {
+        return description;
+    }
+
+    public void setDescription(String description) {
+        this.description = description == null ? "" : description.trim();
     }
 
     public boolean isOpen() {

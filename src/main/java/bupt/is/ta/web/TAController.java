@@ -95,6 +95,9 @@ public class TAController extends HttpServlet {
                     session.removeAttribute("taJobBoardHint");
                 }
                 List<JobAdviceView> jobAdviceList = buildJobAdviceList(current, false);
+                Map<String, JobAdviceView> jobAdviceByJobId = jobAdviceList.stream()
+                        .filter(item -> item != null && item.getJob() != null)
+                        .collect(Collectors.toMap(item -> item.getJob().getId(), item -> item, (a, b) -> a, LinkedHashMap::new));
                 Map<String, Integer> fitScores = new LinkedHashMap<>();
                 for (Job job : jobs) {
                     int score = estimateFitScore(job, current);
@@ -110,6 +113,7 @@ public class TAController extends HttpServlet {
                 sortJobsForBoard(jobs, sort, fitScores, searchResult.getNormalizedScores());
                 req.setAttribute("jobs", jobs);
                 req.setAttribute("fitScores", fitScores);
+                req.setAttribute("jobAdviceByJobId", jobAdviceByJobId);
                 req.setAttribute("searchQuery", query);
                 req.setAttribute("searchSort", sort);
                 req.setAttribute("searchPerformed", searchResult.isSearched());
@@ -133,21 +137,9 @@ public class TAController extends HttpServlet {
                     }
                     session.removeAttribute("taLoginPromptHint");
                 }
-                boolean needsFirstTimeAi = !hasAiEvaluation(current) && hasUploadedCv(current);
-                boolean hasNewJobs = !needsFirstTimeAi && hasPendingNewJobAnalysis(current);
-                req.setAttribute("pendingNewJobAnalysis", needsFirstTimeAi || hasNewJobs);
                 req.setAttribute("profileNeedsConfirm", Boolean.TRUE.equals(session.getAttribute("taProfileNeedsConfirm")));
-                if (Boolean.TRUE.equals(session.getAttribute("taManualAiRefresh"))) {
-                    req.setAttribute("manualAiRefresh", true);
-                    session.removeAttribute("taManualAiRefresh");
-                }
                 SkillMatchService.MatchResult profileMatch = buildProfileAdvice(current);
-                List<JobAdviceView> adviceList = buildJobAdviceList(current, false);
-                adviceList.sort(Comparator
-                        .comparingDouble((JobAdviceView item) -> item.getMatch() == null ? 0.0 : item.getMatch().getAiScore())
-                        .reversed());
                 req.setAttribute("profileMatch", profileMatch);
-                req.setAttribute("jobAdviceList", adviceList);
                 req.setAttribute("profileInitialized", isProfileInitialized(current));
                 req.setAttribute("profileCompletion", calculateProfileCompletion(current));
                 req.getRequestDispatcher("/ta/profile.jsp").forward(req, resp);
