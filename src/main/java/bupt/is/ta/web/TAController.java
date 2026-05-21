@@ -95,6 +95,9 @@ public class TAController extends HttpServlet {
                     session.removeAttribute("taJobBoardHint");
                 }
                 List<JobAdviceView> jobAdviceList = buildJobAdviceList(current, false);
+                Map<String, JobAdviceView> jobAdviceByJobId = jobAdviceList.stream()
+                        .filter(item -> item != null && item.getJob() != null)
+                        .collect(Collectors.toMap(item -> item.getJob().getId(), item -> item, (a, b) -> a, LinkedHashMap::new));
                 Map<String, Integer> fitScores = new LinkedHashMap<>();
                 for (Job job : jobs) {
                     int score = estimateFitScore(job, current);
@@ -110,6 +113,7 @@ public class TAController extends HttpServlet {
                 sortJobsForBoard(jobs, sort, fitScores, searchResult.getNormalizedScores());
                 req.setAttribute("jobs", jobs);
                 req.setAttribute("fitScores", fitScores);
+                req.setAttribute("jobAdviceByJobId", jobAdviceByJobId);
                 req.setAttribute("searchQuery", query);
                 req.setAttribute("searchSort", sort);
                 req.setAttribute("searchPerformed", searchResult.isSearched());
@@ -133,17 +137,11 @@ public class TAController extends HttpServlet {
                     }
                     session.removeAttribute("taLoginPromptHint");
                 }
-                boolean needsFirstTimeAi = !hasAiEvaluation(current) && hasUploadedCv(current);
-                boolean hasNewJobs = !needsFirstTimeAi && hasPendingNewJobAnalysis(current);
-                req.setAttribute("pendingNewJobAnalysis", needsFirstTimeAi || hasNewJobs);
                 req.setAttribute("profileNeedsConfirm", Boolean.TRUE.equals(session.getAttribute("taProfileNeedsConfirm")));
-                if (Boolean.TRUE.equals(session.getAttribute("taManualAiRefresh"))) {
-                    req.setAttribute("manualAiRefresh", true);
-                    session.removeAttribute("taManualAiRefresh");
-                }
                 SkillMatchService.MatchResult profileMatch = buildProfileAdvice(current);
                 req.setAttribute("profileMatch", profileMatch);
-                req.setAttribute("jobAdviceList", buildJobAdviceList(current, false));
+                req.setAttribute("profileInitialized", isProfileInitialized(current));
+                req.setAttribute("profileCompletion", calculateProfileCompletion(current));
                 req.getRequestDispatcher("/ta/profile.jsp").forward(req, resp);
             }
             default -> resp.sendError(HttpServletResponse.SC_NOT_FOUND);
@@ -577,12 +575,12 @@ public class TAController extends HttpServlet {
 
     private void precomputeAiForCurrentTa(User current) {
         if (current == null) return;
-        if (!hasUploadedCv(current)) return;
         UserProfile profile = current.getProfile();
         List<String> extracted = profile.getExtractedSkills() == null ? List.of() : profile.getExtractedSkills();
         List<String> skillTags = current.getSkillTags() == null ? List.of() : current.getSkillTags();
+        boolean allowAi = hasUploadedCv(current);
         SkillMatchService.MatchResult profileResult = skillMatchService.match(
-                extracted, skillTags, profile.getSummary(), profile.getRawCvText(), true
+                extracted, skillTags, profile.getSummary(), profile.getRawCvText(), allowAi
         );
         profile.setLastAiScore(profileResult.getAiScore());
         profile.setLastAiAdvice(profileResult.getAiAdvice());
@@ -597,7 +595,7 @@ public class TAController extends HttpServlet {
             if (job == null) continue;
             List<String> required = job.getRequiredSkills() == null ? List.of() : job.getRequiredSkills();
             SkillMatchService.MatchResult match = skillMatchService.match(
-                    required, skillTags, profile.getSummary(), profile.getRawCvText(), true
+                    required, skillTags, profile.getSummary(), profile.getRawCvText(), allowAi
             );
             UserProfile.JobAiAdviceCache cache = new UserProfile.JobAiAdviceCache();
             cache.setJobId(job.getId());
@@ -612,6 +610,35 @@ public class TAController extends HttpServlet {
             caches.add(cache);
         }
         profile.setJobAiAdviceCaches(caches);
+    }
+
+    private boolean isProfileInitialized(User current) {
+        if (current == null) return false;
+        UserProfile profile = current.getProfile();
+        return current.getGpa() != null
+                || (current.getSkillTags() != null && !current.getSkillTags().isEmpty())
+                || !trim(profile.getSummary()).isBlank()
+                || !trim(profile.getEducation()).isBlank()
+                || !trim(profile.getProjects()).isBlank()
+                || !trim(profile.getCertificates()).isBlank()
+                || !trim(current.getCvPath()).isBlank();
+    }
+
+    private int calculateProfileCompletion(User current) {
+        if (current == null) return 0;
+        UserProfile profile = current.getProfile();
+        int total = 9;
+        int done = 0;
+        if (!trim(current.getName()).isBlank()) done++;
+        if (current.getGpa() != null) done++;
+        if (current.getSkillTags() != null && !current.getSkillTags().isEmpty()) done++;
+        if (!trim(current.getAvailableTime()).isBlank()) done++;
+        if (!trim(profile.getSummary()).isBlank()) done++;
+        if (!trim(profile.getEducation()).isBlank()) done++;
+        if (!trim(profile.getProjects()).isBlank()) done++;
+        if (!trim(profile.getCertificates()).isBlank()) done++;
+        if (!trim(current.getCvPath()).isBlank()) done++;
+        return (int) Math.round(done * 100.0 / total);
     }
 
     private boolean hasPendingNewJobAnalysis(User current) {

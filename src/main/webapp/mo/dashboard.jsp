@@ -26,7 +26,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>My Jobs - Instructor Workspace</title>
-    <link rel="stylesheet" href="<%= request.getContextPath() %>/css/style.css">
+    <link rel="stylesheet" href="<%= request.getContextPath() %>/css/style.css?v=20260518-ui2">
 </head>
 <body>
 <header class="app-header">
@@ -72,8 +72,13 @@
             <tbody>
                 <% for (Job j : jobs) { %>
                 <tr data-open="<%= j.isOpen() ? "open" : "closed" %>"
-                    data-keyword="<%= h(((j.getCourseName() == null ? "" : j.getCourseName()) + " " + (j.getRequiredSkills() == null ? "" : String.join(" ", j.getRequiredSkills()))).toLowerCase()) %>">
-                    <td><%= h(j.getCourseName()) %></td>
+                    data-keyword="<%= h(((j.getCourseName() == null ? "" : j.getCourseName()) + " " + (j.getDescription() == null ? "" : j.getDescription()) + " " + (j.getRequiredSkills() == null ? "" : String.join(" ", j.getRequiredSkills()))).toLowerCase()) %>">
+                    <td>
+                        <strong><%= h(j.getCourseName()) %></strong>
+                        <% if (j.getDescription() != null && !j.getDescription().isBlank()) { %>
+                        <p class="table-description"><%= h(j.getDescription()) %></p>
+                        <% } %>
+                    </td>
                     <td><%= j.getRequiredCount() %></td>
                     <td><%= h(j.getRequiredSkills() != null ? String.join(", ", j.getRequiredSkills()) : "-") %></td>
                     <td><%= h(j.getRequiredWorkTime() == null || j.getRequiredWorkTime().isBlank() ? "-" : j.getRequiredWorkTime()) %></td>

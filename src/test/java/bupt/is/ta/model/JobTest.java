@@ -18,6 +18,7 @@ class JobTest {
         job.setRequiredCount(3);
         job.setRequiredSkills(List.of("Java", "Git", "SQL"));
         job.setRequiredWorkTime("Mon/Wed 14:00-16:00");
+        job.setDescription("Support labs and student Q&A.");
         job.setOpen(true);
 
         assertEquals("job-001", job.getId());
@@ -26,6 +27,7 @@ class JobTest {
         assertEquals(3, job.getRequiredCount());
         assertEquals(List.of("Java", "Git", "SQL"), job.getRequiredSkills());
         assertEquals("Mon/Wed 14:00-16:00", job.getRequiredWorkTime());
+        assertEquals("Support labs and student Q&A.", job.getDescription());
         assertTrue(job.isOpen());
     }
 
@@ -53,6 +55,13 @@ class JobTest {
         Job job = new Job();
         job.setRequiredWorkTime(null);
         assertEquals("", job.getRequiredWorkTime());
+    }
+
+    @Test
+    void descriptionNullIsNormalizedToEmpty() {
+        Job job = new Job();
+        job.setDescription(null);
+        assertEquals("", job.getDescription());
     }
 
     @Test

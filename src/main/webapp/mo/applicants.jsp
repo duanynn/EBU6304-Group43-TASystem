@@ -33,7 +33,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Applicants - <%= h(job.getCourseName()) %></title>
-    <link rel="stylesheet" href="<%= request.getContextPath() %>/css/style.css">
+    <link rel="stylesheet" href="<%= request.getContextPath() %>/css/style.css?v=20260518-ui2">
 </head>
 <body>
 <header class="app-header">
@@ -53,6 +53,12 @@
         </div>
         <span class="status-tag <%= job.isOpen() ? "status-open" : "status-closed" %>"><%= job.isOpen() ? "Open" : "Closed" %></span>
     </div>
+    <% if (job.getDescription() != null && !job.getDescription().isBlank()) { %>
+    <div class="section job-context">
+        <span class="kv-label">Job description</span>
+        <p><%= h(job.getDescription()) %></p>
+    </div>
+    <% } %>
     <div class="section">
         <div class="table-tools">
             <label>Status

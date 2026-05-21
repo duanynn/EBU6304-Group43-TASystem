@@ -7,10 +7,15 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.io.IOException;
+import java.io.ByteArrayInputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 
+import jakarta.servlet.ServletContext;
+import jakarta.servlet.http.Part;
+
 import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.Mockito.*;
 
 /**
  * Tests for FileStorageService — covers deleteCv and resolveCvBaseDir logic.
@@ -76,5 +81,61 @@ class FileStorageServiceTest {
 
         // Restore default config
         DataStore.getInstance().updateConfig(new Config());
+    }
+
+    @Test
+    void resolveCvBaseDir_webappMode_usesServletContextRealPath() {
+        Config cfg = new Config();
+        cfg.setStorageMode("WEBAPP");
+        cfg.setCvRelativePath("/WEB-INF/data/cvs");
+        DataStore.getInstance().updateConfig(cfg);
+        ServletContext context = mock(ServletContext.class);
+        when(context.getRealPath("/WEB-INF/data/cvs")).thenReturn(tempDir.resolve("cvs").toString());
+
+        Path resolved = service.resolveCvBaseDir(context);
+
+        assertEquals(tempDir.resolve("cvs"), resolved);
+    }
+
+    @Test
+    void saveCv_savesSubmittedFileAndReplacesExistingStudentCv() throws IOException {
+        Config cfg = new Config();
+        cfg.setStorageMode("WEBAPP");
+        cfg.setCvRelativePath("/WEB-INF/data/cvs");
+        DataStore.getInstance().updateConfig(cfg);
+        ServletContext context = mock(ServletContext.class);
+        Path cvDir = tempDir.resolve("cvs");
+        when(context.getRealPath("/WEB-INF/data/cvs")).thenReturn(cvDir.toString());
+        Part first = part("resume.PDF", "first");
+        Part second = part("resume.docx", "second");
+
+        String firstPath = service.saveCv(context, "stu001", first);
+        String secondPath = service.saveCv(context, "stu001", second);
+
+        assertFalse(Files.exists(Path.of(firstPath)));
+        assertTrue(secondPath.endsWith("stu001.docx"));
+        assertEquals("second", Files.readString(Path.of(secondPath)));
+    }
+
+    @Test
+    void saveCv_defaultsToPdfWhenSubmittedNameHasNoExtension() throws IOException {
+        Config cfg = new Config();
+        cfg.setStorageMode("WEBAPP");
+        cfg.setCvRelativePath("/WEB-INF/data/cvs");
+        DataStore.getInstance().updateConfig(cfg);
+        ServletContext context = mock(ServletContext.class);
+        when(context.getRealPath("/WEB-INF/data/cvs")).thenReturn(tempDir.resolve("cvs").toString());
+
+        String path = service.saveCv(context, "stu002", part("resume", "content"));
+
+        assertTrue(path.endsWith("stu002.pdf"));
+        assertEquals("content", Files.readString(Path.of(path)));
+    }
+
+    private Part part(String submittedName, String content) throws IOException {
+        Part part = mock(Part.class);
+        when(part.getSubmittedFileName()).thenReturn(submittedName);
+        when(part.getInputStream()).thenReturn(new ByteArrayInputStream(content.getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+        return part;
     }
 }

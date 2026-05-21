@@ -155,6 +155,18 @@ class JobServiceTest {
     }
 
     @Test
+    void save_jobWithDescription_persistsDescription() throws Exception {
+        String id = uid();
+        Job job = buildJob(id, "MO-DESC", true);
+        job.setDescription("Support database labs and office hours.");
+        service.save(job);
+
+        Optional<Job> found = service.findById(id);
+        assertTrue(found.isPresent());
+        assertEquals("Support database labs and office hours.", found.get().getDescription());
+    }
+
+    @Test
     void searchOpenJobs_blankQuery_returnsOpenJobs() throws Exception {
         String id = uid();
         service.save(buildJob(id, "MO-SEARCH-BLANK", true));
@@ -167,13 +179,14 @@ class JobServiceTest {
     }
 
     @Test
-    void searchOpenJobs_usesBm25AcrossCourseSkillsAndTime() throws Exception {
+    void searchOpenJobs_usesBm25AcrossCourseSkillsTimeAndDescription() throws Exception {
         String targetId = uid();
         String otherId = uid();
         Job target = buildJob(targetId, "MO-BM25", true);
         target.setCourseName("Distributed Systems Lab");
         target.setRequiredSkills(List.of("Java", "Concurrency", "Linux"));
         target.setRequiredWorkTime("Friday afternoon lab");
+        target.setDescription("Guide students through replication protocols and consistency debugging.");
         service.save(target);
 
         Job other = buildJob(otherId, "MO-BM25", true);
@@ -182,7 +195,7 @@ class JobServiceTest {
         other.setRequiredWorkTime("Monday morning");
         service.save(other);
 
-        JobService.JobSearchResult result = service.searchOpenJobs("java friday concurrency");
+        JobService.JobSearchResult result = service.searchOpenJobs("java friday replication");
 
         assertTrue(result.isSearched());
         assertFalse(result.getJobs().isEmpty());

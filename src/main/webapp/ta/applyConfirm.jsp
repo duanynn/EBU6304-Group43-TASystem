@@ -31,7 +31,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Confirm Application - <%= h(job.getCourseName()) %></title>
-    <link rel="stylesheet" href="<%= request.getContextPath() %>/css/style.css">
+    <link rel="stylesheet" href="<%= request.getContextPath() %>/css/style.css?v=20260518-ui2">
 </head>
 <body>
 <header class="app-header">
@@ -51,6 +51,13 @@
         </div>
         <span class="fit-pill <%= aiClass %>">Fit <%= aiScore %>%</span>
     </div>
+
+    <% if (job.getDescription() != null && !job.getDescription().isBlank()) { %>
+    <section class="section job-context">
+        <span class="kv-label">Job description</span>
+        <p><%= h(job.getDescription()) %></p>
+    </section>
+    <% } %>
 
     <section class="section match-panel">
         <div class="match-summary-grid">
