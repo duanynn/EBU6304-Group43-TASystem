@@ -2,6 +2,8 @@
 <%@ page import="java.util.List" %>
 <%@ page import="bupt.is.ta.model.Job" %>
 <%@ page import="bupt.is.ta.service.SkillMatchService.MatchResult" %>
+<%@ page import="bupt.is.ta.util.JobDisplayUtil" %>
+<%@ page import="bupt.is.ta.model.User" %>
 <%!
     private String h(Object value) {
         if (value == null) return "";
@@ -14,6 +16,7 @@
     }
 %>
 <%
+    User current = (User) session.getAttribute("currentUser");
     Job job = (Job) request.getAttribute("job");
     MatchResult match = (MatchResult) request.getAttribute("match");
     if (job == null || match == null) { response.sendRedirect(request.getContextPath() + "/ta/jobs"); return; }
@@ -24,6 +27,13 @@
     List<String> studentSkills = match.getStudentSkills() == null ? List.of() : match.getStudentSkills();
     List<String> matched = match.getMatchedSkills() == null ? List.of() : match.getMatchedSkills();
     List<String> missing = match.getMissingSkills() == null ? List.of() : match.getMissingSkills();
+    Boolean applicationOpen = (Boolean) request.getAttribute("applicationOpen");
+    if (applicationOpen == null) applicationOpen = Boolean.TRUE;
+    String scheduleDisplay = (String) request.getAttribute("scheduleDisplay");
+    if (scheduleDisplay == null || scheduleDisplay.isBlank()) {
+        scheduleDisplay = job.getRequiredWorkTime() == null || job.getRequiredWorkTime().isBlank()
+                ? "Time not specified" : job.getRequiredWorkTime();
+    }
 %>
 <!DOCTYPE html>
 <html lang="en">
@@ -34,11 +44,17 @@
     <link rel="stylesheet" href="<%= request.getContextPath() %>/css/style.css?v=20260518-ui2">
 </head>
 <body>
-<header class="app-header">
+<header class="app-header app-header-with-avatar">
     <h1>TA Recruitment System - Student Portal</h1>
+    <span class="user-info user-info-with-avatar">
+        <jsp:include page="/WEB-INF/jsp/avatar.jsp"><jsp:param name="size" value="36"/></jsp:include>
+        <%= h(current != null ? current.getName() : "") %>
+        <jsp:include page="/WEB-INF/jsp/account-menu.jsp"/>
+    </span>
 </header>
 <nav class="app-nav">
     <a href="<%= request.getContextPath() %>/ta/jobs">Job Board</a>
+    <a href="<%= request.getContextPath() %>/ta/schedule">My Schedule</a>
     <a href="<%= request.getContextPath() %>/ta/applications">My Applications</a>
     <a href="<%= request.getContextPath() %>/ta/profile">My Profile</a>
 </nav>
@@ -47,7 +63,7 @@
     <div class="page-head">
         <div>
             <h2 class="page-title">Confirm Application</h2>
-            <p class="page-subtitle"><%= h(job.getCourseName()) %> - <%= h(job.getRequiredWorkTime() == null || job.getRequiredWorkTime().isBlank() ? "Time not specified" : job.getRequiredWorkTime()) %></p>
+            <p class="page-subtitle"><span class="job-type-badge <%= JobDisplayUtil.jobTypeCssClass(job) %>"><%= h(JobDisplayUtil.jobTypeLabel(job)) %></span> <%= h(job.getCourseName()) %> - <%= h(scheduleDisplay) %></p>
         </div>
         <span class="fit-pill <%= aiClass %>">Fit <%= aiScore %>%</span>
     </div>
@@ -72,6 +88,17 @@
                 <strong><%= ruleScore %>%</strong>
                 <span class="score-meter"><span class="<%= ruleScore >= 80 ? "fit-high" : (ruleScore >= 55 ? "fit-mid" : "fit-low") %>" style="width:<%= ruleScore %>%"></span></span>
                 <span class="muted">Skill overlap</span>
+            </div>
+            <div class="score-card">
+                <span class="score-label">Schedule Fit</span>
+                <% if (match.hasScheduleFit()) { %>
+                <strong><%= match.getScheduleScore() %>%</strong>
+                <span class="score-meter"><span class="<%= match.getScheduleScore() >= 80 ? "fit-high" : (match.getScheduleScore() >= 50 ? "fit-mid" : "fit-low") %>" style="width:<%= match.getScheduleScore() %>%"></span></span>
+                <span class="muted"><%= h(match.getScheduleSummary()) %></span>
+                <% } else { %>
+                <strong>N/A</strong>
+                <span class="muted"><a href="<%= request.getContextPath() %>/ta/profile">Add weekly availability</a> for time-fit scoring.</span>
+                <% } %>
             </div>
             <div class="score-card">
                 <span class="score-label">Openings</span>
@@ -149,7 +176,15 @@
         <% } %>
         <form method="post" action="<%= request.getContextPath() %>/ta/confirmApply" class="form-actions">
             <input type="hidden" name="jobId" value="<%= h(job.getId()) %>"/>
+            <div class="form-group">
+                <label for="applicationNote">Application note (optional, max 500 characters)</label>
+                <textarea id="applicationNote" name="note" rows="4" maxlength="500" class="input-area" placeholder="Explain your relevant experience, availability, or learning plan for missing skills."></textarea>
+            </div>
+            <% if (Boolean.TRUE.equals(applicationOpen)) { %>
             <button type="submit" class="btn btn-success">Confirm Application</button>
+            <% } else { %>
+            <span class="btn btn-secondary disabled-action">Applications closed</span>
+            <% } %>
             <a href="<%= request.getContextPath() %>/ta/jobs" class="btn btn-secondary">Back</a>
         </form>
     </section>
