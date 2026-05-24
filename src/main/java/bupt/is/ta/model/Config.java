@@ -7,6 +7,8 @@ public class Config {
     private String dashscopeApiKey = "";
     private String dashscopeEndpoint = "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions";
     private String dashscopeModel = "qwen-plus";
+    private String currentSemester = "2025-2026-S2";
+    private String applicationDeadline = "";
 
     public int getMaxCoursesPerTA() {
         return maxCoursesPerTA;
@@ -54,6 +56,22 @@ public class Config {
 
     public void setDashscopeModel(String dashscopeModel) {
         this.dashscopeModel = dashscopeModel;
+    }
+
+    public String getCurrentSemester() {
+        return currentSemester;
+    }
+
+    public void setCurrentSemester(String currentSemester) {
+        this.currentSemester = currentSemester == null ? "" : currentSemester.trim();
+    }
+
+    public String getApplicationDeadline() {
+        return applicationDeadline;
+    }
+
+    public void setApplicationDeadline(String applicationDeadline) {
+        this.applicationDeadline = applicationDeadline == null ? "" : applicationDeadline.trim();
     }
 }
 
