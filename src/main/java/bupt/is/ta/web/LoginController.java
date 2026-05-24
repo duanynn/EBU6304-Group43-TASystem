@@ -38,7 +38,7 @@ public class LoginController extends HttpServlet {
 
         switch (user.getRole()) {
             case TA -> resp.sendRedirect(req.getContextPath() + "/ta/dashboard");
-            case MO -> resp.sendRedirect(req.getContextPath() + "/mo/dashboard");
+            case MO -> resp.sendRedirect(req.getContextPath() + "/mo/home");
             case ADMIN -> resp.sendRedirect(req.getContextPath() + "/admin/overview");
         }
     }

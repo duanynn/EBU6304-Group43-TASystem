@@ -57,12 +57,19 @@ public class RegisterController extends HttpServlet {
             req.getRequestDispatcher("/register.jsp").forward(req, resp);
             return;
         }
+        String idCardSuffix = req.getParameter("idCardSuffix");
+        if (idCardSuffix == null || !idCardSuffix.trim().matches("\\d{6}")) {
+            req.setAttribute("error", "ID card last 6 digits are required (used only for password recovery).");
+            req.getRequestDispatcher("/register.jsp").forward(req, resp);
+            return;
+        }
 
         User ta = new User();
         ta.setId(id);
         ta.setPassword(password.trim());
         ta.setName(name != null ? name.trim() : id);
         ta.setRole(User.Role.TA);
+        ta.setIdCardSuffix(idCardSuffix.trim());
         if (gpaStr != null && !gpaStr.trim().isEmpty()) {
             try {
                 ta.setGpa(Double.parseDouble(gpaStr.trim()));
@@ -77,7 +84,18 @@ public class RegisterController extends HttpServlet {
         } else {
             ta.setSkillTags(new ArrayList<>());
         }
-        ta.setAvailableTime(availableTime);
+        bupt.is.ta.util.JobScheduleUtil.ParseResult availParse = bupt.is.ta.util.JobScheduleUtil.parseSlotRows(
+                req.getParameterValues("availDay"),
+                req.getParameterValues("availStart"),
+                req.getParameterValues("availEnd"));
+        if (availParse.isOk()) {
+            ta.setAvailableSlots(availParse.getSlots());
+            ta.setAvailableTime(bupt.is.ta.util.JobScheduleUtil.formatSummary(availParse.getSlots()));
+        } else {
+            req.setAttribute("error", availParse.getError());
+            req.getRequestDispatcher("/register.jsp").forward(req, resp);
+            return;
+        }
         boolean uploadedCv = false;
         try {
             Part cvPart = req.getPart("cvFile");
