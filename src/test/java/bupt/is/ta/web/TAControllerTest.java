@@ -4,10 +4,13 @@ import bupt.is.ta.model.Job;
 import bupt.is.ta.model.User;
 import bupt.is.ta.store.DataStore;
 import jakarta.servlet.RequestDispatcher;
+import jakarta.servlet.ServletConfig;
+import jakarta.servlet.ServletContext;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.servlet.http.HttpSession;
 import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import java.nio.file.Files;
@@ -18,6 +21,15 @@ import static org.mockito.Mockito.*;
 class TAControllerTest {
 
     private final TAController controller = new TAController();
+
+    @BeforeEach
+    void initServlet() throws Exception {
+        ServletConfig config = mock(ServletConfig.class);
+        ServletContext context = mock(ServletContext.class);
+        when(config.getServletContext()).thenReturn(context);
+        when(context.getRealPath(anyString())).thenReturn(null);
+        controller.init(config);
+    }
 
     @BeforeAll
     static void initStore() throws Exception {

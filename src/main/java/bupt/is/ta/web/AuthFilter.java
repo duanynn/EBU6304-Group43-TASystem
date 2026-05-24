@@ -1,6 +1,8 @@
 package bupt.is.ta.web;
 
 import bupt.is.ta.model.User;
+import bupt.is.ta.service.UserService;
+import bupt.is.ta.util.JobScheduleUtil;
 import jakarta.servlet.*;
 import jakarta.servlet.annotation.WebFilter;
 import jakarta.servlet.http.HttpServletRequest;
@@ -11,6 +13,8 @@ import java.io.IOException;
 
 @WebFilter(urlPatterns = {"/ta/*", "/mo/*", "/admin/*"})
 public class AuthFilter implements Filter {
+
+    private final UserService userService = new UserService();
 
     @Override
     public void doFilter(ServletRequest request, ServletResponse response, FilterChain chain)
@@ -39,6 +43,11 @@ public class AuthFilter implements Filter {
             resp.sendError(HttpServletResponse.SC_FORBIDDEN);
             return;
         }
+
+        userService.findById(current.getId()).ifPresent(fresh -> {
+            JobScheduleUtil.materializeAvailabilitySlots(fresh);
+            session.setAttribute("currentUser", fresh);
+        });
 
         chain.doFilter(request, response);
     }

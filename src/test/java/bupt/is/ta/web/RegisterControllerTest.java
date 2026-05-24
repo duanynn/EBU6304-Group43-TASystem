@@ -72,7 +72,10 @@ class RegisterControllerTest {
         when(req.getParameter("name")).thenReturn("New Student");
         when(req.getParameter("gpa")).thenReturn("3.6");
         when(req.getParameter("skillTags")).thenReturn("Java, SQL");
-        when(req.getParameter("availableTime")).thenReturn("Friday");
+        when(req.getParameter("idCardSuffix")).thenReturn("654321");
+        when(req.getParameterValues("availDay")).thenReturn(new String[]{"5"});
+        when(req.getParameterValues("availStart")).thenReturn(new String[]{"09:00"});
+        when(req.getParameterValues("availEnd")).thenReturn(new String[]{"12:00"});
         when(req.getPart("cvFile")).thenReturn(null);
         when(req.getSession(true)).thenReturn(session);
         when(req.getContextPath()).thenReturn("/ta-recruitment-system");
@@ -88,6 +91,10 @@ class RegisterControllerTest {
         HttpServletRequest req = mock(HttpServletRequest.class);
         when(req.getParameter("id")).thenReturn(id);
         when(req.getParameter("password")).thenReturn("123456");
+        when(req.getParameter("idCardSuffix")).thenReturn("123456");
+        when(req.getParameterValues("availDay")).thenReturn(new String[]{"1"});
+        when(req.getParameterValues("availStart")).thenReturn(new String[]{"09:00"});
+        when(req.getParameterValues("availEnd")).thenReturn(new String[]{"11:00"});
         return req;
     }
 

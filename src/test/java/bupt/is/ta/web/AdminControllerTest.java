@@ -7,11 +7,13 @@ import bupt.is.ta.store.DataStore;
 import jakarta.servlet.RequestDispatcher;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import jakarta.servlet.http.HttpSession;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
 import java.nio.file.Files;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.Mockito.*;
 
 class AdminControllerTest {
@@ -62,6 +64,29 @@ class AdminControllerTest {
         verify(req).setAttribute("error", "Staff ID must be 10 digits");
         verify(req).setAttribute(eq("users"), any());
         verify(dispatcher).forward(req, resp);
+    }
+
+    @Test
+    void doPost_resetMoPasswordUpdatesMoAndRedirects() throws Exception {
+        HttpServletRequest req = mock(HttpServletRequest.class);
+        HttpServletResponse resp = mock(HttpServletResponse.class);
+        HttpSession session = mock(HttpSession.class);
+        when(req.getServletPath()).thenReturn("/admin/users");
+        when(req.getParameter("action")).thenReturn("resetMoPassword");
+        when(req.getParameter("moId")).thenReturn("0000000001");
+        when(req.getContextPath()).thenReturn("/ta-recruitment-system");
+        when(req.getSession(false)).thenReturn(session);
+
+        controller.doPost(req, resp);
+
+        verify(session).setAttribute(eq("adminMessage"), contains("111"));
+        verify(session).setAttribute(eq("adminMessageType"), eq("success"));
+        verify(resp).sendRedirect("/ta-recruitment-system/admin/users");
+        assertEquals(AdminController.DEFAULT_MO_RESET_PASSWORD, DataStore.getInstance().getUsers().stream()
+                .filter(u -> "0000000001".equals(u.getId()))
+                .findFirst()
+                .orElseThrow()
+                .getPassword());
     }
 
     @Test

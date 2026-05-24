@@ -1,6 +1,7 @@
 package bupt.is.ta.web;
 
 import bupt.is.ta.model.User;
+import bupt.is.ta.util.UploadLimits;
 import bupt.is.ta.service.CvParsingService;
 import bupt.is.ta.service.FileStorageService;
 import bupt.is.ta.service.UserService;
@@ -20,7 +21,11 @@ import java.util.List;
 import java.util.stream.Collectors;
 
 @WebServlet("/register")
-@MultipartConfig
+@MultipartConfig(
+        maxFileSize = UploadLimits.CV_MAX_BYTES,
+        maxRequestSize = UploadLimits.MULTIPART_MAX_REQUEST_BYTES,
+        fileSizeThreshold = 1024 * 1024
+)
 public class RegisterController extends HttpServlet {
 
     private final UserService userService = new UserService();
@@ -29,11 +34,32 @@ public class RegisterController extends HttpServlet {
 
     @Override
     protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
+        HttpSession session = req.getSession(false);
+        if (session != null) {
+            Object err = session.getAttribute("registerError");
+            if (err instanceof String s && !s.isBlank()) {
+                req.setAttribute("error", s);
+                session.removeAttribute("registerError");
+            }
+        }
         req.getRequestDispatcher("/register.jsp").forward(req, resp);
     }
 
     @Override
     protected void doPost(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
+        try {
+            handleRegisterPost(req, resp);
+        } catch (IllegalStateException e) {
+            if (UploadLimits.isSizeLimitExceeded(e)) {
+                req.setAttribute("error", UploadLimits.cvSizeMessage());
+                req.getRequestDispatcher("/register.jsp").forward(req, resp);
+                return;
+            }
+            throw e;
+        }
+    }
+
+    private void handleRegisterPost(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
         String id = req.getParameter("id");
         String password = req.getParameter("password");
         String name = req.getParameter("name");
@@ -57,12 +83,19 @@ public class RegisterController extends HttpServlet {
             req.getRequestDispatcher("/register.jsp").forward(req, resp);
             return;
         }
+        String idCardSuffix = req.getParameter("idCardSuffix");
+        if (idCardSuffix == null || !idCardSuffix.trim().matches("\\d{6}")) {
+            req.setAttribute("error", "ID card last 6 digits are required (used only for password recovery).");
+            req.getRequestDispatcher("/register.jsp").forward(req, resp);
+            return;
+        }
 
         User ta = new User();
         ta.setId(id);
         ta.setPassword(password.trim());
         ta.setName(name != null ? name.trim() : id);
         ta.setRole(User.Role.TA);
+        ta.setIdCardSuffix(idCardSuffix.trim());
         if (gpaStr != null && !gpaStr.trim().isEmpty()) {
             try {
                 ta.setGpa(Double.parseDouble(gpaStr.trim()));
@@ -77,13 +110,24 @@ public class RegisterController extends HttpServlet {
         } else {
             ta.setSkillTags(new ArrayList<>());
         }
-        ta.setAvailableTime(availableTime);
+        bupt.is.ta.util.JobScheduleUtil.ParseResult availParse = bupt.is.ta.util.JobScheduleUtil.parseSlotRows(
+                req.getParameterValues("availDay"),
+                req.getParameterValues("availStart"),
+                req.getParameterValues("availEnd"));
+        if (availParse.isOk()) {
+            ta.setAvailableSlots(availParse.getSlots());
+            ta.setAvailableTime(bupt.is.ta.util.JobScheduleUtil.formatSummary(availParse.getSlots()));
+        } else {
+            req.setAttribute("error", availParse.getError());
+            req.getRequestDispatcher("/register.jsp").forward(req, resp);
+            return;
+        }
         boolean uploadedCv = false;
         try {
             Part cvPart = req.getPart("cvFile");
             if (cvPart != null && cvPart.getSize() > 0) {
-                if (cvPart.getSize() > 5 * 1024 * 1024L) {
-                    req.setAttribute("error", "CV file size must be <= 5MB");
+                if (cvPart.getSize() > UploadLimits.CV_MAX_BYTES) {
+                    req.setAttribute("error", UploadLimits.cvSizeMessage());
                     req.getRequestDispatcher("/register.jsp").forward(req, resp);
                     return;
                 }
@@ -100,7 +144,11 @@ public class RegisterController extends HttpServlet {
                 uploadedCv = true;
             }
         } catch (Exception e) {
-            req.setAttribute("error", "CV upload or parsing failed. Please check the file and retry.");
+            if (UploadLimits.isSizeLimitExceeded(e)) {
+                req.setAttribute("error", UploadLimits.cvSizeMessage());
+            } else {
+                req.setAttribute("error", "CV upload or parsing failed. Please check the file and retry.");
+            }
             req.getRequestDispatcher("/register.jsp").forward(req, resp);
             return;
         }

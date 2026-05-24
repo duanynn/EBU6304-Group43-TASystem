@@ -56,4 +56,24 @@ class ApplicationTest {
         app.setStatus(Application.Status.REJECTED);
         assertEquals(Application.Status.REJECTED, app.getStatus());
     }
+
+    @Test
+    void noteDefaultsToEmpty() {
+        Application app = new Application();
+        assertEquals("", app.getNote());
+    }
+
+    @Test
+    void noteCanBeSet() {
+        Application app = new Application();
+        app.setNote("I have lab experience.");
+        assertEquals("I have lab experience.", app.getNote());
+    }
+
+    @Test
+    void noteNullBecomesEmpty() {
+        Application app = new Application();
+        app.setNote(null);
+        assertEquals("", app.getNote());
+    }
 }

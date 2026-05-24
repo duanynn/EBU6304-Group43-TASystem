@@ -175,7 +175,15 @@ public class AiAdviceService {
                                          int requiredCount,
                                          List<String> requiredSkills,
                                          String requiredWorkTime) {
-        String fallback = buildLocalJobDescription(courseName, requiredCount, requiredSkills, requiredWorkTime);
+        return generateJobDescription(courseName, requiredCount, requiredSkills, requiredWorkTime, null);
+    }
+
+    public String generateJobDescription(String courseName,
+                                         int requiredCount,
+                                         List<String> requiredSkills,
+                                         String requiredWorkTime,
+                                         bupt.is.ta.model.Job.JobType jobType) {
+        String fallback = buildLocalJobDescription(courseName, requiredCount, requiredSkills, requiredWorkTime, jobType);
         Config cfg = DataStore.getInstance().getConfig();
         String apiKey = cfg != null ? cfg.getDashscopeApiKey() : "";
         if (apiKey == null || apiKey.isBlank()) {
@@ -213,7 +221,7 @@ public class AiAdviceService {
 
             JsonObject user = new JsonObject();
             user.addProperty("role", "user");
-            user.addProperty("content", buildJobDescriptionPrompt(courseName, requiredCount, requiredSkills, requiredWorkTime));
+            user.addProperty("content", buildJobDescriptionPrompt(courseName, requiredCount, requiredSkills, requiredWorkTime, jobType));
             messages.add(user);
             payload.add("messages", messages);
             applyStableSampling(payload, 0.25, 0.75);
@@ -247,6 +255,15 @@ public class AiAdviceService {
                                           List<String> missingSkills,
                                           String profileSummary,
                                           String rawCvText) {
+        return analyzeJobFit(requiredSkills, studentSkills, missingSkills, profileSummary, rawCvText, "");
+    }
+
+    public AiAnalysisResult analyzeJobFit(List<String> requiredSkills,
+                                          List<String> studentSkills,
+                                          List<String> missingSkills,
+                                          String profileSummary,
+                                          String rawCvText,
+                                          String scheduleContext) {
         Config cfg = DataStore.getInstance().getConfig();
         String apiKey = cfg != null ? cfg.getDashscopeApiKey() : "";
         if (apiKey == null || apiKey.isBlank()) {
@@ -274,7 +291,7 @@ public class AiAdviceService {
             messages.add(system);
             JsonObject user = new JsonObject();
             user.addProperty("role", "user");
-            user.addProperty("content", buildStructuredPrompt(requiredSkills, studentSkills, missingSkills, profileSummary, rawCvText));
+            user.addProperty("content", buildStructuredPrompt(requiredSkills, studentSkills, missingSkills, profileSummary, rawCvText, scheduleContext));
             messages.add(user);
             payload.add("messages", messages);
             applyStableSampling(payload, 0.0, 0.1);
@@ -316,8 +333,11 @@ public class AiAdviceService {
     private String buildJobDescriptionPrompt(String courseName,
                                              int requiredCount,
                                              List<String> requiredSkills,
-                                             String requiredWorkTime) {
+                                             String requiredWorkTime,
+                                             bupt.is.ta.model.Job.JobType jobType) {
+        String typeLabel = jobTypeLabel(jobType);
         return "Create a TA job description for the following posting.\n"
+                + "Job type: " + typeLabel + "\n"
                 + "Course: " + cleanText(courseName, "Unnamed course") + "\n"
                 + "Required TA count: " + Math.max(1, requiredCount) + "\n"
                 + "Required skills: " + (requiredSkills == null ? List.of() : requiredSkills) + "\n"
@@ -332,17 +352,34 @@ public class AiAdviceService {
     private String buildLocalJobDescription(String courseName,
                                             int requiredCount,
                                             List<String> requiredSkills,
-                                            String requiredWorkTime) {
+                                            String requiredWorkTime,
+                                            bupt.is.ta.model.Job.JobType jobType) {
         String course = cleanText(courseName, "this course");
         String count = Math.max(1, requiredCount) == 1 ? "one TA" : Math.max(1, requiredCount) + " TAs";
         String skills = requiredSkills == null || requiredSkills.isEmpty()
                 ? "course-related technical and communication skills"
                 : String.join(", ", requiredSkills);
         String time = cleanText(requiredWorkTime, "the scheduled teaching and support hours");
+        if (jobType == bupt.is.ta.model.Job.JobType.INVIGILATION) {
+            return "We are recruiting " + count + " for exam invigilation duties related to " + course + ". "
+                    + "Responsibilities include room setup, attendance monitoring, and reporting irregularities according to school policy. "
+                    + "Candidates should demonstrate reliability, attention to detail, and " + skills + ". Expected availability is " + time + ".";
+        }
         return "We are recruiting " + count + " to support " + course + ". The TA will help with tutorials, labs, "
                 + "student questions, assignment preparation, and coordination with the instructor. Candidates should "
                 + "be comfortable with " + skills + " and able to communicate clearly with students. Expected availability "
                 + "is " + time + ". Prior teaching, mentoring, project, or coursework experience related to the course is preferred.";
+    }
+
+    private static String jobTypeLabel(bupt.is.ta.model.Job.JobType jobType) {
+        if (jobType == null) {
+            return "Module TA";
+        }
+        return switch (jobType) {
+            case MODULE_TA -> "Module TA";
+            case INVIGILATION -> "Invigilation";
+            case OTHER -> "Other activity";
+        };
     }
 
     private static String cleanText(String value, String fallback) {
@@ -615,12 +652,17 @@ public class AiAdviceService {
                                          List<String> studentSkills,
                                          List<String> missingSkills,
                                          String profileSummary,
-                                         String rawCvText) {
+                                         String rawCvText,
+                                         String scheduleContext) {
         String cvSnippet = rawCvText == null ? "" : rawCvText.substring(0, Math.min(rawCvText.length(), 1500));
+        String scheduleLine = scheduleContext == null || scheduleContext.isBlank()
+                ? ""
+                : "=== Schedule Fit ===\n" + scheduleContext + "\n\n";
         return "Evaluate candidate-job fit using the details below.\n\n"
                 + "=== Required Skills ===\n" + requiredSkills + "\n\n"
                 + "=== Candidate Skills ===\n" + studentSkills + "\n\n"
                 + "=== Missing Skills ===\n" + missingSkills + "\n\n"
+                + scheduleLine
                 + "=== Resume Summary ===\n" + (profileSummary == null ? "" : profileSummary) + "\n\n"
                 + "=== Resume Text ===\n" + cvSnippet + "\n\n"
                 + "Return strictly in this JSON format (no extra content):\n"

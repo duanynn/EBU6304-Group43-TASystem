@@ -71,6 +71,48 @@ public class FileStorageService {
         }
     }
 
+    public String saveAvatar(ServletContext context, String userId, Part filePart) throws IOException {
+        Path baseDir = resolveAvatarBaseDir(context);
+        if (!Files.exists(baseDir)) {
+            Files.createDirectories(baseDir);
+        }
+        String ext = extractExtension(filePart.getSubmittedFileName());
+        if (ext.isEmpty()) {
+            ext = ".jpg";
+        }
+        if (!ext.equalsIgnoreCase(".jpg") && !ext.equalsIgnoreCase(".jpeg")
+                && !ext.equalsIgnoreCase(".png") && !ext.equalsIgnoreCase(".gif")
+                && !ext.equalsIgnoreCase(".webp")) {
+            ext = ".jpg";
+        }
+        String targetName = userId + ext.toLowerCase();
+        Path target = baseDir.resolve(targetName);
+        try (InputStream in = filePart.getInputStream()) {
+            Files.copy(in, target, StandardCopyOption.REPLACE_EXISTING);
+        }
+        return target.toString();
+    }
+
+    public Path resolveAvatarPath(ServletContext context, String userId) {
+        Path baseDir = resolveAvatarBaseDir(context);
+        if (!Files.exists(baseDir)) {
+            return baseDir.resolve(userId + ".jpg");
+        }
+        try (var files = Files.list(baseDir)) {
+            return files.filter(Files::isRegularFile)
+                    .filter(p -> p.getFileName().toString().startsWith(userId + "."))
+                    .findFirst()
+                    .orElse(baseDir.resolve(userId + ".jpg"));
+        } catch (IOException e) {
+            return baseDir.resolve(userId + ".jpg");
+        }
+    }
+
+    public Path resolveAvatarBaseDir(ServletContext context) {
+        String realBase = context.getRealPath("/WEB-INF/data/avatars");
+        return Path.of(realBase);
+    }
+
     private String extractExtension(String fileName) {
         if (fileName == null) {
             return "";

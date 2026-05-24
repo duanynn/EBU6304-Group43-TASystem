@@ -98,6 +98,29 @@ class UserServiceTest {
         assertTrue(auth.isEmpty());
     }
 
+    @Test
+    void verifyPasswordFromStore_readsPersistedJson_notStaleMemory() throws Exception {
+        String id = uniqueId();
+        User u = buildUser(id, "Eve", User.Role.TA, "on-disk");
+        service.save(u);
+
+        assertTrue(service.verifyPasswordFromStore(id, "on-disk"));
+        assertFalse(service.verifyPasswordFromStore(id, "wrong"));
+
+        service.findById(id).ifPresent(found -> found.setPassword("only-in-memory"));
+        assertTrue(service.verifyPasswordFromStore(id, "on-disk"));
+        assertFalse(service.verifyPasswordFromStore(id, "only-in-memory"));
+        assertFalse(service.authenticate(id, "only-in-memory").isPresent());
+    }
+
+    @Test
+    void resolveStoredPassword_prefersJsonFileOnDisk() throws Exception {
+        String id = uniqueId();
+        User u = buildUser(id, "Frank", User.Role.TA, "disk-pass");
+        service.save(u);
+        assertEquals("disk-pass", store.resolveStoredPassword(id));
+    }
+
     // ── save ─────────────────────────────────────────────────────────────
 
     @Test

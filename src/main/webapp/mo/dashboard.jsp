@@ -2,6 +2,8 @@
 <%@ page import="java.util.List" %>
 <%@ page import="bupt.is.ta.model.Job" %>
 <%@ page import="bupt.is.ta.model.User" %>
+<%@ page import="bupt.is.ta.util.JobDisplayUtil" %>
+<%@ page import="bupt.is.ta.util.JobScheduleUtil" %>
 <%!
     private String h(Object value) {
         if (value == null) return "";
@@ -28,12 +30,15 @@
     <title>My Jobs - Instructor Workspace</title>
     <link rel="stylesheet" href="<%= request.getContextPath() %>/css/style.css?v=20260518-ui2">
 </head>
-<body>
+<body class="layout-wide">
 <header class="app-header">
     <h1>TA Recruitment System - Instructor Workspace</h1>
-    <span class="user-info"><%= h(current != null ? current.getName() : "") %> <a href="<%= request.getContextPath() %>/login">Logout</a></span>
+    <span class="user-info user-info-with-avatar"><%= h(current != null ? current.getName() : "") %>
+        <jsp:include page="/WEB-INF/jsp/account-menu.jsp"/>
+    </span>
 </header>
 <nav class="app-nav">
+    <a href="<%= request.getContextPath() %>/mo/home">My Home</a>
     <a href="<%= request.getContextPath() %>/mo/dashboard">My Jobs</a>
     <a href="<%= request.getContextPath() %>/mo/postJob">Post New Job</a>
 </nav>
@@ -61,7 +66,7 @@
         <table class="data-table">
             <thead>
                 <tr>
-                    <th>Course</th>
+                    <th>Type</th><th>Course</th>
                     <th>Openings</th>
                     <th>Required Skills</th>
                     <th>Working Time</th>
@@ -73,6 +78,7 @@
                 <% for (Job j : jobs) { %>
                 <tr data-open="<%= j.isOpen() ? "open" : "closed" %>"
                     data-keyword="<%= h(((j.getCourseName() == null ? "" : j.getCourseName()) + " " + (j.getDescription() == null ? "" : j.getDescription()) + " " + (j.getRequiredSkills() == null ? "" : String.join(" ", j.getRequiredSkills()))).toLowerCase()) %>">
+                    <td><span class="job-type-badge <%= JobDisplayUtil.jobTypeCssClass(j) %>"><%= h(JobDisplayUtil.jobTypeLabel(j)) %></span></td>
                     <td>
                         <strong><%= h(j.getCourseName()) %></strong>
                         <% if (j.getDescription() != null && !j.getDescription().isBlank()) { %>
@@ -81,7 +87,7 @@
                     </td>
                     <td><%= j.getRequiredCount() %></td>
                     <td><%= h(j.getRequiredSkills() != null ? String.join(", ", j.getRequiredSkills()) : "-") %></td>
-                    <td><%= h(j.getRequiredWorkTime() == null || j.getRequiredWorkTime().isBlank() ? "-" : j.getRequiredWorkTime()) %></td>
+                    <td class="cell-nowrap"><%= h(JobScheduleUtil.displayWorkTime(j)) %></td>
                     <td><span class="status-tag <%= j.isOpen() ? "status-open" : "status-closed" %>"><%= j.isOpen() ? "Open" : "Closed" %></span></td>
                     <td>
                         <a href="<%= request.getContextPath() %>/mo/applicants?jobId=<%= h(j.getId()) %>" class="btn btn-small">View Applicants</a>

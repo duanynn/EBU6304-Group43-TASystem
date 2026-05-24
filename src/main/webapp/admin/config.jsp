@@ -13,6 +13,8 @@
     String dashscopeApiKey = request.getAttribute("dashscopeApiKey") != null ? (String) request.getAttribute("dashscopeApiKey") : "";
     String dashscopeEndpoint = request.getAttribute("dashscopeEndpoint") != null ? (String) request.getAttribute("dashscopeEndpoint") : "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions";
     String dashscopeModel = request.getAttribute("dashscopeModel") != null ? (String) request.getAttribute("dashscopeModel") : "qwen-plus";
+    String currentSemester = request.getAttribute("configCurrentSemester") != null ? (String) request.getAttribute("configCurrentSemester") : "2025-2026-S2";
+    String applicationDeadline = request.getAttribute("configApplicationDeadline") != null ? (String) request.getAttribute("configApplicationDeadline") : "";
     User current = (User) session.getAttribute("currentUser");
 %>
 <!DOCTYPE html>
@@ -26,10 +28,13 @@
 <body>
 <header class="app-header">
     <h1>TA Recruitment System - Admin</h1>
-    <span class="user-info"><%= current != null ? current.getName() : "" %> <a href="<%= request.getContextPath() %>/login">Logout</a></span>
+    <span class="user-info user-info-with-avatar"><%= current != null ? current.getName() : "" %>
+        <jsp:include page="/WEB-INF/jsp/account-menu.jsp"/>
+    </span>
 </header>
 <nav class="app-nav">
     <a href="<%= request.getContextPath() %>/admin/overview">Overview</a>
+    <a href="<%= request.getContextPath() %>/admin/openJobs">Open Jobs</a>
     <a href="<%= request.getContextPath() %>/admin/workload">Workload</a>
     <a href="<%= request.getContextPath() %>/admin/users">Users</a>
     <a href="<%= request.getContextPath() %>/admin/config">System Config</a>
@@ -38,6 +43,15 @@
     <h2 class="page-title">System Parameters</h2>
     <div class="section">
         <form method="post" action="<%= request.getContextPath() %>/admin/config">
+            <div class="form-group">
+                <label>Current Semester</label>
+                <input type="text" name="currentSemester" value="<%= currentSemester %>" placeholder="e.g. 2025-2026-S2">
+            </div>
+            <div class="form-group">
+                <label>Application Deadline (ISO-8601, empty = no limit)</label>
+                <input type="text" name="applicationDeadline" value="<%= applicationDeadline %>" placeholder="2026-05-24T23:59:59Z">
+                <p class="muted">Example: 2026-05-24T23:59:59Z. Leave blank to keep applications open.</p>
+            </div>
             <div class="form-group">
                 <label>Max Courses Per TA (Circuit-Breaker Threshold)</label>
                 <input type="number" name="maxCoursesPerTA" value="<%= maxCourses %>" min="1">

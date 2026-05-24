@@ -3,6 +3,7 @@
 <%@ page import="bupt.is.ta.model.User" %>
 <%@ page import="bupt.is.ta.model.Job" %>
 <%@ page import="bupt.is.ta.service.SkillMatchService.MatchResult" %>
+<%@ page import="bupt.is.ta.model.Application" %>
 <%!
     private String h(Object value) {
         if (value == null) return "";
@@ -19,6 +20,7 @@
     User student = (User) request.getAttribute("student");
     Job job = (Job) request.getAttribute("job");
     MatchResult match = (MatchResult) request.getAttribute("match");
+    Application jobApplication = (Application) request.getAttribute("application");
     if (student == null || job == null || match == null) {
         response.sendRedirect(request.getContextPath() + "/mo/dashboard");
         return;
@@ -41,9 +43,12 @@
 <body>
 <header class="app-header">
     <h1>TA Recruitment System - Instructor Workspace</h1>
-    <span class="user-info"><%= h(current != null ? current.getName() : "") %> <a href="<%= request.getContextPath() %>/login">Logout</a></span>
+    <span class="user-info user-info-with-avatar"><%= h(current != null ? current.getName() : "") %>
+        <jsp:include page="/WEB-INF/jsp/account-menu.jsp"/>
+    </span>
 </header>
 <nav class="app-nav">
+    <a href="<%= request.getContextPath() %>/mo/home">My Home</a>
     <a href="<%= request.getContextPath() %>/mo/dashboard">My Jobs</a>
     <a href="<%= request.getContextPath() %>/mo/postJob">Post New Job</a>
 </nav>
@@ -135,6 +140,13 @@
         </div>
         <p><strong>Advice:</strong> <%= h(match.getAiAdvice() == null || match.getAiAdvice().isBlank() ? "N/A" : match.getAiAdvice()) %></p>
     </section>
+
+    <% if (jobApplication != null && jobApplication.getNote() != null && !jobApplication.getNote().isBlank()) { %>
+    <section class="section">
+        <h3>Application Note</h3>
+        <p class="field-block"><%= h(jobApplication.getNote()) %></p>
+    </section>
+    <% } %>
 
     <section class="section cv-resume-card">
         <h3>CV Content</h3>
