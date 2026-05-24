@@ -14,9 +14,6 @@ import bupt.is.ta.service.ScheduleConflictService;
 import bupt.is.ta.service.ScheduleViewService;
 import bupt.is.ta.service.SkillMatchService;
 import bupt.is.ta.service.UserService;
-import bupt.is.ta.util.JobAdviceSignatureUtil;
-import bupt.is.ta.util.JobScheduleUtil;
-import bupt.is.ta.util.UploadLimits;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.annotation.MultipartConfig;
 import jakarta.servlet.annotation.WebServlet;
@@ -477,29 +474,6 @@ public class TAController extends HttpServlet {
 
     private void handleSaveProfile(HttpServletRequest req, HttpServletResponse resp, User current) throws IOException {
         try {
-            String preset = trim(req.getParameter("avatarPreset"));
-            if (!preset.isBlank()) {
-                avatarService.applyPreset(current, preset);
-            }
-            Part avatarPart = req.getPart("avatarFile");
-            if (avatarPart != null && avatarPart.getSize() > 0) {
-                if (avatarPart.getSize() > UploadLimits.AVATAR_MAX_BYTES) {
-                    flashProfile(req.getSession(false), UploadLimits.avatarSizeMessage(), "error");
-                    resp.sendRedirect(req.getContextPath() + "/ta/profile");
-                    return;
-                }
-                String submitted = avatarPart.getSubmittedFileName();
-                String lower = submitted == null ? "" : submitted.toLowerCase();
-                if (!(lower.endsWith(".jpg") || lower.endsWith(".jpeg") || lower.endsWith(".png")
-                        || lower.endsWith(".gif") || lower.endsWith(".webp"))) {
-                    flashProfile(req.getSession(false), "Profile photo must be JPG, PNG, GIF, or WebP.", "error");
-                    resp.sendRedirect(req.getContextPath() + "/ta/profile");
-                    return;
-                }
-                fileStorageService.saveAvatar(getServletContext(), current.getId(), avatarPart);
-                current.setAvatarType(User.AvatarType.UPLOAD);
-                current.setAvatarKey(current.getId());
-            }
             current.setName(trim(req.getParameter("name")));
             String gpaValue = trim(req.getParameter("gpa"));
             if (!gpaValue.isBlank()) {

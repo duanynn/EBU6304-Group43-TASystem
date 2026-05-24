@@ -24,6 +24,10 @@
             <input type="password" name="idCardSuffix" required pattern="\d{6}" maxlength="6" placeholder="6 digits" autocomplete="off">
         </label>
         <p class="muted" style="margin: -8px 0 12px;">Used only if you forget your password. Never shown on your profile.</p>
+        <label>ID card last 6 digits <span style="color:red">*</span>
+            <input type="password" name="idCardSuffix" required pattern="\d{6}" maxlength="6" placeholder="6 digits" autocomplete="off">
+        </label>
+        <p class="muted" style="margin: -8px 0 12px;">Used only if you forget your password. Never shown on your profile.</p>
         <label>Name
             <input type="text" name="name" placeholder="Defaults to student ID if empty">
         </label>
@@ -33,6 +37,21 @@
         <label>Skill Tags (optional, comma-separated)
             <input type="text" name="skillTags" placeholder="e.g. Java, Python, IELTS">
         </label>
+        <label>Weekly Availability <span style="color:red">*</span></label>
+        <p class="muted" style="margin: -8px 0 10px;">Select at least one weekly time slot when you can work.</p>
+        <div id="availSlotRows" class="schedule-slot-rows">
+            <div class="schedule-slot-row">
+                <select name="availDay" required>
+                    <option value="1">Monday</option><option value="2">Tuesday</option><option value="3">Wednesday</option>
+                    <option value="4">Thursday</option><option value="5">Friday</option><option value="6">Saturday</option><option value="7">Sunday</option>
+                </select>
+                <input type="time" name="availStart" value="09:00" min="08:00" max="23:00" required>
+                <span class="schedule-slot-sep">to</span>
+                <input type="time" name="availEnd" value="12:00" min="09:00" max="23:00" required>
+                <button type="button" class="btn btn-small btn-secondary avail-remove-btn" hidden>Remove</button>
+            </div>
+        </div>
+        <button type="button" class="btn btn-small btn-secondary" id="addAvailSlotBtn" style="margin-bottom:14px;">Add availability slot</button>
         <label>Weekly Availability <span style="color:red">*</span></label>
         <p class="muted" style="margin: -8px 0 10px;">Select at least one weekly time slot when you can work.</p>
         <div id="availSlotRows" class="schedule-slot-rows">
