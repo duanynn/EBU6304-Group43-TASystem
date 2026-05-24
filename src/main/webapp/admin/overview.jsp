@@ -9,21 +9,25 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Overview - Admin</title>
-    <link rel="stylesheet" href="<%= request.getContextPath() %>/css/style.css">
+    <link rel="stylesheet" href="<%= request.getContextPath() %>/css/style.css?v=20260518-ui2">
 </head>
 <body>
 <header class="app-header">
     <h1>TA Recruitment System - Admin</h1>
-    <span class="user-info"><%= current != null ? current.getName() : "" %> <a href="<%= request.getContextPath() %>/login">Logout</a></span>
+    <span class="user-info user-info-with-avatar"><%= current != null ? current.getName() : "" %>
+        <jsp:include page="/WEB-INF/jsp/account-menu.jsp"/>
+    </span>
 </header>
 <nav class="app-nav">
     <a href="<%= request.getContextPath() %>/admin/overview">Overview</a>
+    <a href="<%= request.getContextPath() %>/admin/openJobs">Open Jobs</a>
     <a href="<%= request.getContextPath() %>/admin/workload">Workload</a>
     <a href="<%= request.getContextPath() %>/admin/users">Users</a>
     <a href="<%= request.getContextPath() %>/admin/config">System Config</a>
 </nav>
 <main class="app-main">
     <h2 class="page-title">System Overview</h2>
+    <p class="page-subtitle muted">Current recruitment semester: <%= request.getAttribute("currentSemester") != null ? request.getAttribute("currentSemester") : "-" %></p>
     <%
         long totalUsers = request.getAttribute("totalUsers") == null ? 0L : Long.parseLong(String.valueOf(request.getAttribute("totalUsers")));
         long totalJobs = request.getAttribute("totalJobs") == null ? 0L : Long.parseLong(String.valueOf(request.getAttribute("totalJobs")));

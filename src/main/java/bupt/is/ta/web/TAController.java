@@ -5,11 +5,18 @@ import bupt.is.ta.model.Job;
 import bupt.is.ta.model.User;
 import bupt.is.ta.model.UserProfile;
 import bupt.is.ta.service.ApplicationService;
+import bupt.is.ta.service.AvatarService;
 import bupt.is.ta.service.CvParsingService;
 import bupt.is.ta.service.FileStorageService;
 import bupt.is.ta.service.JobService;
+import bupt.is.ta.service.RecruitmentPolicyService;
+import bupt.is.ta.service.ScheduleConflictService;
+import bupt.is.ta.service.ScheduleViewService;
 import bupt.is.ta.service.SkillMatchService;
 import bupt.is.ta.service.UserService;
+import bupt.is.ta.util.JobAdviceSignatureUtil;
+import bupt.is.ta.util.JobScheduleUtil;
+import bupt.is.ta.util.UploadLimits;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.annotation.MultipartConfig;
 import jakarta.servlet.annotation.WebServlet;
@@ -21,8 +28,10 @@ import jakarta.servlet.http.HttpSession;
 
 import java.io.IOException;
 import java.nio.file.Path;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -30,10 +39,15 @@ import java.util.Set;
 import java.util.stream.Collectors;
 
 @WebServlet({
-        "/ta/dashboard", "/ta/jobs", "/ta/apply", "/ta/confirmApply", "/ta/applications",
-        "/ta/uploadCv", "/ta/deleteCv", "/ta/profile", "/ta/reparseCv", "/ta/loginProfileDecision", "/ta/refreshNewJobsAi"
+        "/ta/dashboard", "/ta/jobs", "/ta/apply", "/ta/confirmApply", "/ta/applications", "/ta/schedule",
+        "/ta/uploadCv", "/ta/deleteCv", "/ta/profile", "/ta/reparseCv", "/ta/loginProfileDecision", "/ta/refreshNewJobsAi",
+        "/ta/interviewResponse"
 })
-@MultipartConfig
+@MultipartConfig(
+        maxFileSize = UploadLimits.CV_MAX_BYTES,
+        maxRequestSize = UploadLimits.MULTIPART_MAX_REQUEST_BYTES,
+        fileSizeThreshold = 1024 * 1024
+)
 public class TAController extends HttpServlet {
     public static class JobAdviceView {
         private final Job job;
@@ -59,6 +73,10 @@ public class TAController extends HttpServlet {
     private final FileStorageService fileStorageService = new FileStorageService();
     private final CvParsingService cvParsingService = new CvParsingService();
     private final UserService userService = new UserService();
+    private final RecruitmentPolicyService recruitmentPolicyService = new RecruitmentPolicyService();
+    private final ScheduleConflictService scheduleConflictService = new ScheduleConflictService();
+    private final ScheduleViewService scheduleViewService = new ScheduleViewService();
+    private final AvatarService avatarService = new AvatarService();
 
     @Override
     protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
@@ -74,11 +92,26 @@ public class TAController extends HttpServlet {
 
         switch (path) {
             case "/ta/dashboard", "/ta/jobs" -> {
-                List<Job> jobs = jobService.listOpenJobs();
-                req.setAttribute("jobs", jobs);
-                Map<String, Application.Status> appliedJobStatus = applicationService.listByStudent(current.getId()).stream()
+                String query = trim(req.getParameter("q"));
+                String sort = trim(req.getParameter("sort"));
+                Job.JobType typeFilter = parseJobTypeFilter(req.getParameter("type"));
+                JobService.JobSearchResult searchResult = jobService.searchOpenJobs(query, typeFilter);
+                List<Job> jobs = new ArrayList<>(searchResult.getJobs());
+                if (sort.isBlank()) {
+                    sort = searchResult.isSearched() ? "relevance" : "newest";
+                }
+                List<Application> myApps = applicationService.listByStudent(current.getId());
+                Map<String, Application.Status> appliedJobStatus = myApps.stream()
                         .collect(Collectors.toMap(Application::getJobId, Application::getStatus, (a, b) -> a));
+                Map<String, Application> applicationByJobId = myApps.stream()
+                        .collect(Collectors.toMap(Application::getJobId, a -> a, (a, b) -> a));
+                long interviewPendingCount = applicationService.countPendingInterviewResponses(current.getId());
                 req.setAttribute("appliedJobStatus", appliedJobStatus);
+                req.setAttribute("applicationByJobId", applicationByJobId);
+                req.setAttribute("interviewPendingCount", interviewPendingCount);
+                req.setAttribute("pendingInterviewApps", myApps.stream()
+                        .filter(Application::needsInterviewResponse)
+                        .toList());
                 Object jobBoardHint = session.getAttribute("taJobBoardHint");
                 if (jobBoardHint instanceof String) {
                     String hint = (String) jobBoardHint;
@@ -88,6 +121,9 @@ public class TAController extends HttpServlet {
                     session.removeAttribute("taJobBoardHint");
                 }
                 List<JobAdviceView> jobAdviceList = buildJobAdviceList(current, false);
+                Map<String, JobAdviceView> jobAdviceByJobId = jobAdviceList.stream()
+                        .filter(item -> item != null && item.getJob() != null)
+                        .collect(Collectors.toMap(item -> item.getJob().getId(), item -> item, (a, b) -> a, LinkedHashMap::new));
                 Map<String, Integer> fitScores = new LinkedHashMap<>();
                 for (Job job : jobs) {
                     int score = estimateFitScore(job, current);
@@ -100,13 +136,41 @@ public class TAController extends HttpServlet {
                     }
                     fitScores.put(job.getId(), score);
                 }
+                sortJobsForBoard(jobs, sort, fitScores, searchResult.getNormalizedScores());
+                req.setAttribute("jobs", jobs);
                 req.setAttribute("fitScores", fitScores);
+                req.setAttribute("jobAdviceByJobId", jobAdviceByJobId);
+                req.setAttribute("searchQuery", query);
+                req.setAttribute("searchSort", sort);
+                req.setAttribute("searchPerformed", searchResult.isSearched());
+                req.setAttribute("searchScores", searchResult.getNormalizedScores());
+                req.setAttribute("totalOpenJobs", searchResult.getTotalOpenJobs());
+                req.setAttribute("resultCount", jobs.size());
                 req.setAttribute("triggerBackgroundAi", needsBackgroundAiRefresh(current));
+                req.setAttribute("applicationOpen", recruitmentPolicyService.isApplicationOpen());
+                req.setAttribute("currentSemester", recruitmentPolicyService.getCurrentSemester());
+                req.setAttribute("applicationDeadlineDisplay", recruitmentPolicyService.formatDeadlineForDisplay());
+                req.setAttribute("searchJobType", typeFilter == null ? "" : typeFilter.name());
+                Set<String> conflictJobIds = jobs.stream()
+                        .filter(job -> !appliedJobStatus.containsKey(job.getId()))
+                        .filter(job -> !scheduleConflictService.findConflictingApplications(current.getId(), job).isEmpty())
+                        .map(Job::getId)
+                        .collect(Collectors.toSet());
+                req.setAttribute("conflictJobIds", conflictJobIds);
                 req.getRequestDispatcher("/ta/jobBoard.jsp").forward(req, resp);
+            }
+            case "/ta/schedule" -> {
+                ScheduleViewService.TimetableView view = scheduleViewService.buildForStudent(current.getId());
+                req.setAttribute("timetableView", view);
+                long interviewPendingCount = applicationService.countPendingInterviewResponses(current.getId());
+                req.setAttribute("interviewPendingCount", interviewPendingCount);
+                req.getRequestDispatcher("/ta/schedule.jsp").forward(req, resp);
             }
             case "/ta/applications" -> {
                 List<Application> apps = applicationService.listByStudent(current.getId());
                 req.setAttribute("applications", apps);
+                long interviewPendingCount = applicationService.countPendingInterviewResponses(current.getId());
+                req.setAttribute("interviewPendingCount", interviewPendingCount);
                 req.getRequestDispatcher("/ta/myApplications.jsp").forward(req, resp);
             }
             case "/ta/profile" -> {
@@ -118,25 +182,58 @@ public class TAController extends HttpServlet {
                     }
                     session.removeAttribute("taLoginPromptHint");
                 }
-                boolean needsFirstTimeAi = !hasAiEvaluation(current) && hasUploadedCv(current);
-                boolean hasNewJobs = !needsFirstTimeAi && hasPendingNewJobAnalysis(current);
-                req.setAttribute("pendingNewJobAnalysis", needsFirstTimeAi || hasNewJobs);
                 req.setAttribute("profileNeedsConfirm", Boolean.TRUE.equals(session.getAttribute("taProfileNeedsConfirm")));
-                if (Boolean.TRUE.equals(session.getAttribute("taManualAiRefresh"))) {
-                    req.setAttribute("manualAiRefresh", true);
-                    session.removeAttribute("taManualAiRefresh");
-                }
                 SkillMatchService.MatchResult profileMatch = buildProfileAdvice(current);
                 req.setAttribute("profileMatch", profileMatch);
-                req.setAttribute("jobAdviceList", buildJobAdviceList(current, false));
+                req.setAttribute("profileInitialized", isProfileInitialized(current));
+                req.setAttribute("profileCompletion", calculateProfileCompletion(current));
+                req.setAttribute("avatarUrl", avatarService.resolveDisplayUrl(current));
+                req.setAttribute("presetAvatars", avatarService.listPresetKeys(getServletContext()));
                 req.getRequestDispatcher("/ta/profile.jsp").forward(req, resp);
             }
             default -> resp.sendError(HttpServletResponse.SC_NOT_FOUND);
         }
     }
 
+    private void sortJobsForBoard(List<Job> jobs,
+                                  String sort,
+                                  Map<String, Integer> fitScores,
+                                  Map<String, Integer> searchScores) {
+        if (jobs == null || jobs.size() < 2) {
+            return;
+        }
+        if ("fit".equalsIgnoreCase(sort)) {
+            jobs.sort(Comparator
+                    .comparingInt((Job job) -> fitScores.getOrDefault(job.getId(), 0)).reversed()
+                    .thenComparing(Comparator.comparing(TAController::createdAtOrEpoch).reversed()));
+        } else if ("newest".equalsIgnoreCase(sort)) {
+            jobs.sort(Comparator.comparing(TAController::createdAtOrEpoch).reversed());
+        } else if ("relevance".equalsIgnoreCase(sort)) {
+            jobs.sort(Comparator
+                    .comparingInt((Job job) -> searchScores.getOrDefault(job.getId(), 0)).reversed()
+                    .thenComparing(Comparator.comparing(TAController::createdAtOrEpoch).reversed()));
+        }
+    }
+
+    private static Instant createdAtOrEpoch(Job job) {
+        return job == null || job.getCreatedAt() == null ? Instant.EPOCH : job.getCreatedAt();
+    }
+
     @Override
     protected void doPost(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
+        try {
+            handlePost(req, resp);
+        } catch (IllegalStateException e) {
+            if (UploadLimits.isSizeLimitExceeded(e)) {
+                flashProfile(req.getSession(false), UploadLimits.requestTooLargeMessage(), "error");
+                resp.sendRedirect(req.getContextPath() + "/ta/profile");
+                return;
+            }
+            throw e;
+        }
+    }
+
+    private void handlePost(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
         String path = req.getServletPath();
         HttpSession session = req.getSession(false);
         User current = (User) session.getAttribute("currentUser");
@@ -157,12 +254,20 @@ public class TAController extends HttpServlet {
             handleLoginProfileDecision(req, resp, current);
         } else if ("/ta/refreshNewJobsAi".equals(path)) {
             handleRefreshNewJobsAi(req, resp, current);
+        } else if ("/ta/interviewResponse".equals(path)) {
+            handleInterviewResponse(req, resp, current);
         } else {
             resp.sendError(HttpServletResponse.SC_METHOD_NOT_ALLOWED);
         }
     }
 
     private void handleConfirmApply(HttpServletRequest req, HttpServletResponse resp, User current) throws IOException {
+        if (!recruitmentPolicyService.isApplicationOpen()) {
+            req.getSession().setAttribute("taJobBoardHint",
+                    "The application period has closed. New applications are no longer accepted.");
+            resp.sendRedirect(req.getContextPath() + "/ta/jobs");
+            return;
+        }
         String jobId = req.getParameter("jobId");
         Job job = jobService.findById(jobId).orElse(null);
         if (job == null) {
@@ -176,9 +281,21 @@ public class TAController extends HttpServlet {
             resp.sendRedirect(req.getContextPath() + "/ta/jobs");
             return;
         }
+        List<Application> conflicts = scheduleConflictService.findConflictingApplications(current.getId(), job);
+        if (!conflicts.isEmpty()) {
+            req.getSession().setAttribute("taJobBoardHint",
+                    scheduleConflictService.conflictMessage(job, conflicts));
+            resp.sendRedirect(req.getContextPath() + "/ta/jobs");
+            return;
+        }
         Application app = new Application();
         app.setStudentId(current.getId());
         app.setJobId(jobId);
+        String note = trim(req.getParameter("note"));
+        if (note.length() > 500) {
+            note = note.substring(0, 500);
+        }
+        app.setNote(note);
         try {
             applicationService.create(app);
         } catch (Exception e) {
@@ -189,6 +306,12 @@ public class TAController extends HttpServlet {
 
     private void handleApply(HttpServletRequest req, HttpServletResponse resp, User current)
             throws IOException, ServletException {
+        if (!recruitmentPolicyService.isApplicationOpen()) {
+            req.getSession().setAttribute("taJobBoardHint",
+                    "The application period has closed. New applications are no longer accepted.");
+            resp.sendRedirect(req.getContextPath() + "/ta/jobs");
+            return;
+        }
         String jobId = req.getParameter("jobId");
         Job job = jobService.findById(jobId).orElse(null);
         if (job == null) {
@@ -202,27 +325,26 @@ public class TAController extends HttpServlet {
             resp.sendRedirect(req.getContextPath() + "/ta/jobs");
             return;
         }
+        List<Application> scheduleConflicts = scheduleConflictService.findConflictingApplications(current.getId(), job);
+        if (!scheduleConflicts.isEmpty()) {
+            req.getSession().setAttribute("taJobBoardHint",
+                    scheduleConflictService.conflictMessage(job, scheduleConflicts));
+            resp.sendRedirect(req.getContextPath() + "/ta/jobs");
+            return;
+        }
 
         List<String> required = job.getRequiredSkills() == null ? List.of() : job.getRequiredSkills();
         List<String> studentSkills = current.getSkillTags() == null ? List.of() : current.getSkillTags();
         UserProfile profile = current.getProfile();
-        String signature = buildJobAdviceSignature(job, current, profile);
+        String signature = JobAdviceSignatureUtil.build(job, current, profile);
         UserProfile.JobAiAdviceCache cache = profile.findJobAiAdviceCache(job.getId(), signature);
+        JobScheduleUtil.materializeAvailabilitySlots(current);
+        JobScheduleUtil.materializeJobScheduleSlots(job);
+
         SkillMatchService.MatchResult matchResult;
         if (isJobCacheValid(cache)) {
-            matchResult = new SkillMatchService.MatchResult(
-                    required,
-                    studentSkills,
-                    List.of(),
-                    cache.getAiGaps(),
-                    cache.getAiScore() / 100.0,
-                    cache.getAiScore(),
-                    cache.getAiAdvice(),
-                    cache.getAiStrengths(),
-                    cache.getAiGaps(),
-                    cache.getAiFitSummary(),
-                    cache.isAiGenerated()
-            );
+            matchResult = skillMatchService.fromJobAdviceCache(cache, required, studentSkills);
+            matchResult = skillMatchService.mergeScheduleFit(matchResult, job, current);
         } else {
             boolean allowAi = hasUploadedCv(current) && hasAiEvaluation(current);
             matchResult = skillMatchService.match(
@@ -230,13 +352,29 @@ public class TAController extends HttpServlet {
                     studentSkills,
                     profile.getSummary(),
                     profile.getRawCvText(),
-                    allowAi
+                    allowAi,
+                    job,
+                    current
             );
         }
 
         req.setAttribute("job", job);
         req.setAttribute("match", matchResult);
+        req.setAttribute("applicationOpen", recruitmentPolicyService.isApplicationOpen());
+        req.setAttribute("scheduleDisplay", JobScheduleUtil.displayWorkTime(job));
+        req.setAttribute("hasStructuredSchedule", JobScheduleUtil.hasStructuredSlots(job));
         req.getRequestDispatcher("/ta/applyConfirm.jsp").forward(req, resp);
+    }
+
+    private Job.JobType parseJobTypeFilter(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return null;
+        }
+        try {
+            return Job.JobType.valueOf(raw.trim().toUpperCase());
+        } catch (IllegalArgumentException e) {
+            return null;
+        }
     }
 
     private void handleUploadCv(HttpServletRequest req, HttpServletResponse resp, User current) throws IOException {
@@ -247,14 +385,16 @@ public class TAController extends HttpServlet {
                 resp.sendRedirect(req.getContextPath() + "/ta/profile");
                 return;
             }
-            if (cvPart.getSize() > 5 * 1024 * 1024L) {
-                resp.sendError(HttpServletResponse.SC_BAD_REQUEST, "File size must be <= 5MB");
+            if (cvPart.getSize() > UploadLimits.CV_MAX_BYTES) {
+                flashProfile(req.getSession(false), UploadLimits.cvSizeMessage(), "error");
+                resp.sendRedirect(req.getContextPath() + "/ta/profile");
                 return;
             }
             String submittedName = cvPart.getSubmittedFileName();
             String lower = submittedName == null ? "" : submittedName.toLowerCase();
             if (!(lower.endsWith(".pdf") || lower.endsWith(".doc") || lower.endsWith(".docx"))) {
-                resp.sendError(HttpServletResponse.SC_BAD_REQUEST, "Only PDF/DOC/DOCX files are supported");
+                flashProfile(req.getSession(false), "Only PDF, DOC, and DOCX files are supported.", "error");
+                resp.sendRedirect(req.getContextPath() + "/ta/profile");
                 return;
             }
 
@@ -264,9 +404,16 @@ public class TAController extends HttpServlet {
             userService.save(current);
             req.getSession().setAttribute("currentUser", current);
             req.getSession().setAttribute("taProfileNeedsConfirm", Boolean.TRUE);
+            flashProfile(req.getSession(false), "CV uploaded and parsed successfully.", "success");
             resp.sendRedirect(req.getContextPath() + "/ta/profile");
         } catch (Exception e) {
-            throw new IOException("Failed to upload CV", e);
+            if (UploadLimits.isSizeLimitExceeded(e)) {
+                flashProfile(req.getSession(false), UploadLimits.cvSizeMessage(), "error");
+                resp.sendRedirect(req.getContextPath() + "/ta/profile");
+                return;
+            }
+            flashProfile(req.getSession(false), "CV upload failed. Please check the file and try again.", "error");
+            resp.sendRedirect(req.getContextPath() + "/ta/profile");
         }
     }
 
@@ -296,8 +443,63 @@ public class TAController extends HttpServlet {
         }
     }
 
+    private void handleInterviewResponse(HttpServletRequest req, HttpServletResponse resp, User current) throws IOException {
+        try {
+            String appId = trim(req.getParameter("applicationId"));
+            String action = trim(req.getParameter("action"));
+            Application app = applicationService.findById(appId).orElse(null);
+            if (app == null || !current.getId().equals(app.getStudentId())) {
+                resp.sendError(HttpServletResponse.SC_BAD_REQUEST, "Application not found");
+                return;
+            }
+            if (!app.needsInterviewResponse()) {
+                req.getSession().setAttribute("taJobBoardHint", "This interview invitation is no longer awaiting your response.");
+                resp.sendRedirect(req.getContextPath() + "/ta/applications");
+                return;
+            }
+            if ("accept".equalsIgnoreCase(action)) {
+                app.setInterviewResponse(Application.InterviewResponse.ACCEPTED);
+                app.setInterviewRespondedAt(Instant.now());
+            } else if ("decline".equalsIgnoreCase(action)) {
+                app.setInterviewResponse(Application.InterviewResponse.DECLINED);
+                app.setInterviewRespondedAt(Instant.now());
+                app.setStatus(Application.Status.REJECTED);
+            } else {
+                resp.sendError(HttpServletResponse.SC_BAD_REQUEST, "Invalid action");
+                return;
+            }
+            applicationService.update(app);
+            resp.sendRedirect(req.getContextPath() + "/ta/applications");
+        } catch (Exception e) {
+            throw new IOException("Failed to save interview response", e);
+        }
+    }
+
     private void handleSaveProfile(HttpServletRequest req, HttpServletResponse resp, User current) throws IOException {
         try {
+            String preset = trim(req.getParameter("avatarPreset"));
+            if (!preset.isBlank()) {
+                avatarService.applyPreset(current, preset);
+            }
+            Part avatarPart = req.getPart("avatarFile");
+            if (avatarPart != null && avatarPart.getSize() > 0) {
+                if (avatarPart.getSize() > UploadLimits.AVATAR_MAX_BYTES) {
+                    flashProfile(req.getSession(false), UploadLimits.avatarSizeMessage(), "error");
+                    resp.sendRedirect(req.getContextPath() + "/ta/profile");
+                    return;
+                }
+                String submitted = avatarPart.getSubmittedFileName();
+                String lower = submitted == null ? "" : submitted.toLowerCase();
+                if (!(lower.endsWith(".jpg") || lower.endsWith(".jpeg") || lower.endsWith(".png")
+                        || lower.endsWith(".gif") || lower.endsWith(".webp"))) {
+                    flashProfile(req.getSession(false), "Profile photo must be JPG, PNG, GIF, or WebP.", "error");
+                    resp.sendRedirect(req.getContextPath() + "/ta/profile");
+                    return;
+                }
+                fileStorageService.saveAvatar(getServletContext(), current.getId(), avatarPart);
+                current.setAvatarType(User.AvatarType.UPLOAD);
+                current.setAvatarKey(current.getId());
+            }
             current.setName(trim(req.getParameter("name")));
             String gpaValue = trim(req.getParameter("gpa"));
             if (!gpaValue.isBlank()) {
@@ -311,7 +513,16 @@ public class TAController extends HttpServlet {
                     .distinct()
                     .collect(Collectors.toList());
             current.setSkillTags(skills);
-            current.setAvailableTime(trim(req.getParameter("availableTime")));
+            JobScheduleUtil.ParseResult availParse = JobScheduleUtil.parseSlotRows(
+                    req.getParameterValues("availDay"),
+                    req.getParameterValues("availStart"),
+                    req.getParameterValues("availEnd"));
+            if (availParse.isOk()) {
+                current.setAvailableSlots(availParse.getSlots());
+                current.setAvailableTime(JobScheduleUtil.formatSummary(availParse.getSlots()));
+            } else {
+                current.setAvailableTime(trim(req.getParameter("availableTime")));
+            }
 
             current.getProfile().setSummary(trim(req.getParameter("summary")));
             current.getProfile().setEducation(trim(req.getParameter("education")));
@@ -325,16 +536,32 @@ public class TAController extends HttpServlet {
             userService.save(current);
             req.getSession().setAttribute("currentUser", current);
             req.getSession().removeAttribute("taProfileNeedsConfirm");
+            flashProfile(req.getSession(false), "Profile saved successfully.", "success");
             resp.sendRedirect(req.getContextPath() + "/ta/profile");
         } catch (Exception e) {
-            throw new IOException("Failed to save profile", e);
+            if (UploadLimits.isSizeLimitExceeded(e)) {
+                flashProfile(req.getSession(false), UploadLimits.requestTooLargeMessage(), "error");
+                resp.sendRedirect(req.getContextPath() + "/ta/profile");
+                return;
+            }
+            flashProfile(req.getSession(false), "Could not save profile. Please try again.", "error");
+            resp.sendRedirect(req.getContextPath() + "/ta/profile");
         }
+    }
+
+    private static void flashProfile(HttpSession session, String message, String type) {
+        if (session == null) {
+            return;
+        }
+        session.setAttribute("taProfileMessage", message);
+        session.setAttribute("taProfileMessageType", type);
     }
 
     private void handleReparseCv(HttpServletRequest req, HttpServletResponse resp, User current) throws IOException {
         try {
             if (current.getCvPath() == null || current.getCvPath().isBlank()) {
-                resp.sendError(HttpServletResponse.SC_BAD_REQUEST, "Please upload a CV first");
+                flashProfile(req.getSession(false), "Please upload a CV first.", "error");
+                resp.sendRedirect(req.getContextPath() + "/ta/profile");
                 return;
             }
             mergeProfileFromCv(current, Path.of(current.getCvPath()));
@@ -374,32 +601,23 @@ public class TAController extends HttpServlet {
         String rawCv = profile.getRawCvText() == null ? "" : profile.getRawCvText();
         boolean canRefreshWithAi = allowAiRefresh && hasUploadedCv(current) && hasAiEvaluation(current);
         boolean cacheUpdated = false;
+        JobScheduleUtil.materializeAvailabilitySlots(current);
         if (profile.getJobAiAdviceCaches() == null) {
             profile.setJobAiAdviceCaches(new ArrayList<>());
         }
         for (Job job : jobs) {
             if (job == null) continue;
             List<String> required = job.getRequiredSkills() == null ? List.of() : job.getRequiredSkills();
-            String signature = buildJobAdviceSignature(job, current, profile);
+            String signature = JobAdviceSignatureUtil.build(job, current, profile);
             SkillMatchService.MatchResult match;
             UserProfile.JobAiAdviceCache cache = profile.findJobAiAdviceCache(job.getId(), signature);
+            JobScheduleUtil.materializeJobScheduleSlots(job);
             if (isJobCacheValid(cache)) {
-                match = new SkillMatchService.MatchResult(
-                        required,
-                        studentSkills,
-                        List.of(),
-                        cache.getAiGaps(),
-                        cache.getAiScore() / 100.0,
-                        cache.getAiScore(),
-                        cache.getAiAdvice(),
-                        cache.getAiStrengths(),
-                        cache.getAiGaps(),
-                        cache.getAiFitSummary(),
-                        cache.isAiGenerated()
-                );
+                match = skillMatchService.fromJobAdviceCache(cache, required, studentSkills);
+                match = skillMatchService.mergeScheduleFit(match, job, current);
             } else {
                 if (canRefreshWithAi) {
-                    match = skillMatchService.match(required, studentSkills, summary, rawCv, true);
+                    match = skillMatchService.match(required, studentSkills, summary, rawCv, true, job, current);
                     UserProfile.JobAiAdviceCache newCache = new UserProfile.JobAiAdviceCache();
                     newCache.setJobId(job.getId());
                     newCache.setSignature(signature);
@@ -414,7 +632,7 @@ public class TAController extends HttpServlet {
                     profile.getJobAiAdviceCaches().add(newCache);
                     cacheUpdated = true;
                 } else {
-                    match = skillMatchService.match(required, studentSkills, summary, rawCv, false);
+                    match = skillMatchService.match(required, studentSkills, summary, rawCv, false, job, current);
                 }
             }
             result.add(new JobAdviceView(job, match));
@@ -495,18 +713,6 @@ public class TAController extends HttpServlet {
         return (System.currentTimeMillis() - cache.getCachedAt()) < 30 * 60 * 1000L;
     }
 
-    private String buildJobAdviceSignature(Job job, User current, UserProfile profile) {
-        String required = (job.getRequiredSkills() == null ? List.<String>of() : job.getRequiredSkills()).stream()
-                .map(s -> s == null ? "" : s.trim().toLowerCase())
-                .collect(Collectors.joining("|"));
-        String studentSkills = (current.getSkillTags() == null ? List.<String>of() : current.getSkillTags()).stream()
-                .map(s -> s == null ? "" : s.trim().toLowerCase())
-                .collect(Collectors.joining("|"));
-        String parsedAt = profile.getLastParsedAt() == null ? "" : profile.getLastParsedAt();
-        String summary = profile.getSummary() == null ? "" : profile.getSummary();
-        return required + "::" + studentSkills + "::" + parsedAt + "::" + summary.hashCode();
-    }
-
     private void handleLoginProfileDecision(HttpServletRequest req, HttpServletResponse resp, User current) throws IOException {
         String decision = trim(req.getParameter("decision"));
         HttpSession session = req.getSession(false);
@@ -538,12 +744,12 @@ public class TAController extends HttpServlet {
 
     private void precomputeAiForCurrentTa(User current) {
         if (current == null) return;
-        if (!hasUploadedCv(current)) return;
         UserProfile profile = current.getProfile();
         List<String> extracted = profile.getExtractedSkills() == null ? List.of() : profile.getExtractedSkills();
         List<String> skillTags = current.getSkillTags() == null ? List.of() : current.getSkillTags();
+        boolean allowAi = hasUploadedCv(current);
         SkillMatchService.MatchResult profileResult = skillMatchService.match(
-                extracted, skillTags, profile.getSummary(), profile.getRawCvText(), true
+                extracted, skillTags, profile.getSummary(), profile.getRawCvText(), allowAi
         );
         profile.setLastAiScore(profileResult.getAiScore());
         profile.setLastAiAdvice(profileResult.getAiAdvice());
@@ -558,11 +764,11 @@ public class TAController extends HttpServlet {
             if (job == null) continue;
             List<String> required = job.getRequiredSkills() == null ? List.of() : job.getRequiredSkills();
             SkillMatchService.MatchResult match = skillMatchService.match(
-                    required, skillTags, profile.getSummary(), profile.getRawCvText(), true
+                    required, skillTags, profile.getSummary(), profile.getRawCvText(), allowAi, job, current
             );
             UserProfile.JobAiAdviceCache cache = new UserProfile.JobAiAdviceCache();
             cache.setJobId(job.getId());
-            cache.setSignature(buildJobAdviceSignature(job, current, profile));
+            cache.setSignature(JobAdviceSignatureUtil.build(job, current, profile));
             cache.setAiScore(match.getAiScore());
             cache.setAiAdvice(match.getAiAdvice());
             cache.setAiStrengths(match.getAiStrengths());
@@ -575,6 +781,35 @@ public class TAController extends HttpServlet {
         profile.setJobAiAdviceCaches(caches);
     }
 
+    private boolean isProfileInitialized(User current) {
+        if (current == null) return false;
+        UserProfile profile = current.getProfile();
+        return current.getGpa() != null
+                || (current.getSkillTags() != null && !current.getSkillTags().isEmpty())
+                || !trim(profile.getSummary()).isBlank()
+                || !trim(profile.getEducation()).isBlank()
+                || !trim(profile.getProjects()).isBlank()
+                || !trim(profile.getCertificates()).isBlank()
+                || !trim(current.getCvPath()).isBlank();
+    }
+
+    private int calculateProfileCompletion(User current) {
+        if (current == null) return 0;
+        UserProfile profile = current.getProfile();
+        int total = 9;
+        int done = 0;
+        if (!trim(current.getName()).isBlank()) done++;
+        if (current.getGpa() != null) done++;
+        if (current.getSkillTags() != null && !current.getSkillTags().isEmpty()) done++;
+        if (!trim(current.getAvailableTime()).isBlank()) done++;
+        if (!trim(profile.getSummary()).isBlank()) done++;
+        if (!trim(profile.getEducation()).isBlank()) done++;
+        if (!trim(profile.getProjects()).isBlank()) done++;
+        if (!trim(profile.getCertificates()).isBlank()) done++;
+        if (!trim(current.getCvPath()).isBlank()) done++;
+        return (int) Math.round(done * 100.0 / total);
+    }
+
     private boolean hasPendingNewJobAnalysis(User current) {
         if (current == null) return false;
         if (!hasUploadedCv(current) || !hasAiEvaluation(current)) return false;
@@ -583,7 +818,7 @@ public class TAController extends HttpServlet {
         if (jobs == null || jobs.isEmpty()) return false;
         for (Job job : jobs) {
             if (job == null) continue;
-            String signature = buildJobAdviceSignature(job, current, profile);
+            String signature = JobAdviceSignatureUtil.build(job, current, profile);
             UserProfile.JobAiAdviceCache cache = profile.findJobAiAdviceCache(job.getId(), signature);
             if (!isJobCacheValid(cache)) {
                 return true;
@@ -652,12 +887,12 @@ public class TAController extends HttpServlet {
         boolean anyUpdated = false;
         for (Job job : jobs) {
             if (job == null) continue;
-            String signature = buildJobAdviceSignature(job, current, profile);
+            String signature = JobAdviceSignatureUtil.build(job, current, profile);
             UserProfile.JobAiAdviceCache existing = profile.findJobAiAdviceCache(job.getId(), signature);
             if (isJobCacheValid(existing)) continue;
             List<String> required = job.getRequiredSkills() == null ? List.of() : job.getRequiredSkills();
             SkillMatchService.MatchResult match = skillMatchService.match(
-                    required, skillTags, profile.getSummary(), profile.getRawCvText(), true
+                    required, skillTags, profile.getSummary(), profile.getRawCvText(), true, job, current
             );
             UserProfile.JobAiAdviceCache cache = new UserProfile.JobAiAdviceCache();
             cache.setJobId(job.getId());

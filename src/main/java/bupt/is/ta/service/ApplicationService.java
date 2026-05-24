@@ -35,6 +35,13 @@ public class ApplicationService {
                 .findFirst();
     }
 
+    public long countPendingInterviewResponses(String studentId) {
+        return store.getApplications().stream()
+                .filter(a -> studentId.equals(a.getStudentId()))
+                .filter(Application::needsInterviewResponse)
+                .count();
+    }
+
     public long countAcceptedByStudent(String studentId) {
         return store.getApplications().stream()
                 .filter(a -> studentId.equals(a.getStudentId()))
