@@ -1,31 +1,40 @@
 package bupt.is.ta.service;
 
 import bupt.is.ta.model.Config;
+import bupt.is.ta.model.Job;
+import bupt.is.ta.model.User;
+import bupt.is.ta.model.UserProfile;
 import bupt.is.ta.store.DataStore;
+import bupt.is.ta.util.JobScheduleUtil;
 
 import java.util.ArrayList;
-import java.util.LinkedHashMap;
 import java.util.HashSet;
-import java.util.Locale;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 
 public class SkillMatchService {
     private final AiAdviceService aiAdviceService = new AiAdviceService();
+    private final ScheduleFitService scheduleFitService = new ScheduleFitService();
 
     public static class MatchResult {
         private final List<String> requiredSkills;
         private final List<String> studentSkills;
         private final List<String> matchedSkills;
         private final List<String> missingSkills;
-        private final double score; // 0.0 - 1.0
-        private final double aiScore; // 0 - 100
-        private final String aiAdvice; // AI natural-language advice, may be empty
+        private final double score;
+        private final double aiScore;
+        private final String aiAdvice;
         private final List<String> aiStrengths;
         private final List<String> aiGaps;
         private final String aiFitSummary;
         private final boolean aiGenerated;
+        private final Double scheduleCoverage;
+        private final int scheduleScore;
+        private final String scheduleSummary;
+        private final double combinedScore;
 
         public MatchResult(List<String> requiredSkills,
                            List<String> studentSkills,
@@ -38,6 +47,25 @@ public class SkillMatchService {
                            List<String> aiGaps,
                            String aiFitSummary,
                            boolean aiGenerated) {
+            this(requiredSkills, studentSkills, matchedSkills, missingSkills, score, aiScore, aiAdvice,
+                    aiStrengths, aiGaps, aiFitSummary, aiGenerated, null, 0, "", score);
+        }
+
+        public MatchResult(List<String> requiredSkills,
+                           List<String> studentSkills,
+                           List<String> matchedSkills,
+                           List<String> missingSkills,
+                           double score,
+                           double aiScore,
+                           String aiAdvice,
+                           List<String> aiStrengths,
+                           List<String> aiGaps,
+                           String aiFitSummary,
+                           boolean aiGenerated,
+                           Double scheduleCoverage,
+                           int scheduleScore,
+                           String scheduleSummary,
+                           double combinedScore) {
             this.requiredSkills = requiredSkills;
             this.studentSkills = studentSkills;
             this.matchedSkills = matchedSkills;
@@ -49,6 +77,10 @@ public class SkillMatchService {
             this.aiGaps = aiGaps == null ? List.of() : aiGaps;
             this.aiFitSummary = aiFitSummary == null ? "" : aiFitSummary;
             this.aiGenerated = aiGenerated;
+            this.scheduleCoverage = scheduleCoverage;
+            this.scheduleScore = scheduleScore;
+            this.scheduleSummary = scheduleSummary == null ? "" : scheduleSummary;
+            this.combinedScore = combinedScore;
         }
 
         public List<String> getRequiredSkills() {
@@ -94,21 +126,121 @@ public class SkillMatchService {
         public boolean isAiGenerated() {
             return aiGenerated;
         }
+
+        public Double getScheduleCoverage() {
+            return scheduleCoverage;
+        }
+
+        public int getScheduleScore() {
+            return scheduleScore;
+        }
+
+        public String getScheduleSummary() {
+            return scheduleSummary;
+        }
+
+        public double getCombinedScore() {
+            return combinedScore;
+        }
+
+        public boolean hasScheduleFit() {
+            return scheduleCoverage != null;
+        }
+    }
+
+    /**
+     * Rebuild match from cached AI advice (schedule fit is not stored in cache).
+     */
+    public MatchResult fromJobAdviceCache(UserProfile.JobAiAdviceCache cache,
+                                          List<String> requiredSkills,
+                                          List<String> studentSkills) {
+        if (cache == null) {
+            return null;
+        }
+        List<String> required = requiredSkills == null ? List.of() : requiredSkills;
+        List<String> student = studentSkills == null ? List.of() : studentSkills;
+        List<String> gaps = cache.getAiGaps() == null ? List.of() : cache.getAiGaps();
+        double ruleScore = Math.max(0.0, Math.min(1.0, cache.getAiScore() / 100.0));
+        return new MatchResult(
+                required,
+                student,
+                List.of(),
+                gaps,
+                ruleScore,
+                cache.getAiScore(),
+                cache.getAiAdvice(),
+                cache.getAiStrengths(),
+                gaps,
+                cache.getAiFitSummary(),
+                cache.isAiGenerated()
+        );
+    }
+
+    /**
+     * Always compute schedule fit live (cheap) and attach to an existing match (e.g. from AI cache).
+     */
+    public MatchResult mergeScheduleFit(MatchResult base, Job job, User student) {
+        if (base == null) {
+            return null;
+        }
+        if (job == null || student == null) {
+            return base;
+        }
+        JobScheduleUtil.materializeAvailabilitySlots(student);
+        JobScheduleUtil.materializeJobScheduleSlots(job);
+        ScheduleFitService.ScheduleFitResult scheduleFit = scheduleFitService.computeFit(job, student);
+        if (!scheduleFit.isCalculable()) {
+            return base;
+        }
+        String aiFitSummary = base.getAiFitSummary();
+        if (aiFitSummary == null || aiFitSummary.isBlank()) {
+            aiFitSummary = scheduleFit.getSummary();
+        } else if (!aiFitSummary.contains(scheduleFit.getSummary())) {
+            aiFitSummary = aiFitSummary + " " + scheduleFit.getSummary();
+        }
+        double combinedScore = base.getScore() * 0.7 + (scheduleFit.getScheduleScore() / 100.0) * 0.3;
+        return new MatchResult(
+                base.getRequiredSkills(),
+                base.getStudentSkills(),
+                base.getMatchedSkills(),
+                base.getMissingSkills(),
+                base.getScore(),
+                base.getAiScore(),
+                base.getAiAdvice(),
+                base.getAiStrengths(),
+                base.getAiGaps(),
+                aiFitSummary,
+                base.isAiGenerated(),
+                scheduleFit.getCoverage(),
+                scheduleFit.getScheduleScore(),
+                scheduleFit.getSummary(),
+                combinedScore
+        );
     }
 
     public MatchResult match(List<String> required, List<String> student) {
-        return match(required, student, "", "", true);
+        return match(required, student, "", "", true, null, null);
     }
 
     public MatchResult match(List<String> required, List<String> student, String profileSummary) {
-        return match(required, student, profileSummary, "", true);
+        return match(required, student, profileSummary, "", true, null, null);
     }
 
     public MatchResult match(List<String> required, List<String> student, String profileSummary, String rawCvText) {
-        return match(required, student, profileSummary, rawCvText, true);
+        return match(required, student, profileSummary, rawCvText, true, null, null);
     }
 
     public MatchResult match(List<String> required, List<String> student, String profileSummary, String rawCvText, boolean enableAi) {
+        return match(required, student, profileSummary, rawCvText, enableAi, null, null);
+    }
+
+    public MatchResult match(List<String> required,
+                           List<String> student,
+                           String profileSummary,
+                           String rawCvText,
+                           boolean enableAi,
+                           Job job,
+                           User studentUser) {
         List<String> safeRequired = required == null ? List.of() : required;
         List<String> safeStudent = student == null ? List.of() : student;
         Map<String, String> requiredByKey = normalizeSkills(safeRequired);
@@ -131,8 +263,23 @@ public class SkillMatchService {
                 ? 1.0
                 : (double) matched.size() / (double) requiredSet.size();
 
+        String scheduleContext = "";
+        ScheduleFitService.ScheduleFitResult scheduleFit = null;
+        if (job != null && studentUser != null) {
+            scheduleFit = scheduleFitService.computeFit(job, studentUser);
+            if (scheduleFit.isCalculable()) {
+                scheduleContext = scheduleFit.getSummary();
+            }
+        }
+
         AiAdviceService.AiAnalysisResult aiResult = enableAi
-                ? aiAdviceService.analyzeJobFit(List.copyOf(requiredByKey.values()), List.copyOf(studentByKey.values()), List.copyOf(missing), profileSummary, rawCvText)
+                ? aiAdviceService.analyzeJobFit(
+                List.copyOf(requiredByKey.values()),
+                List.copyOf(studentByKey.values()),
+                List.copyOf(missing),
+                profileSummary,
+                rawCvText,
+                scheduleContext)
                 : new AiAdviceService.AiAnalysisResult(null, "", List.of(), List.of(), "", false);
         String aiAdvice = aiResult.getAdvice();
         List<String> aiStrengths = aiResult.getStrengths();
@@ -154,6 +301,22 @@ public class SkillMatchService {
                     : "Current result is from local rule-based evaluation because AI real-time evaluation is not configured.";
             aiGenerated = false;
         }
+        if (scheduleFit != null && scheduleFit.isCalculable() && (aiFitSummary == null || aiFitSummary.isBlank())) {
+            aiFitSummary = scheduleFit.getSummary();
+        } else if (scheduleFit != null && scheduleFit.isCalculable()) {
+            aiFitSummary = aiFitSummary + " " + scheduleFit.getSummary();
+        }
+
+        double combinedScore = score;
+        Double scheduleCoverage = null;
+        int scheduleScore = 0;
+        String scheduleSummary = "Time fit: N/A";
+        if (scheduleFit != null && scheduleFit.isCalculable()) {
+            scheduleCoverage = scheduleFit.getCoverage();
+            scheduleScore = scheduleFit.getScheduleScore();
+            scheduleSummary = scheduleFit.getSummary();
+            combinedScore = score * 0.7 + (scheduleScore / 100.0) * 0.3;
+        }
 
         return new MatchResult(
                 List.copyOf(requiredByKey.values()),
@@ -166,7 +329,11 @@ public class SkillMatchService {
                 aiStrengths,
                 aiGaps,
                 aiFitSummary,
-                aiGenerated
+                aiGenerated,
+                scheduleCoverage,
+                scheduleScore,
+                scheduleSummary,
+                combinedScore
         );
     }
 
@@ -223,4 +390,3 @@ public class SkillMatchService {
                 + base;
     }
 }
-

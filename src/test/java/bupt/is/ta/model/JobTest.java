@@ -38,6 +38,19 @@ class JobTest {
     }
 
     @Test
+    void defaultJobTypeIsModuleTa() {
+        Job job = new Job();
+        assertEquals(Job.JobType.MODULE_TA, job.getJobType());
+    }
+
+    @Test
+    void jobTypeCanBeInvigilation() {
+        Job job = new Job();
+        job.setJobType(Job.JobType.INVIGILATION);
+        assertEquals(Job.JobType.INVIGILATION, job.getJobType());
+    }
+
+    @Test
     void defaultRequiredSkillsIsEmptyList() {
         Job job = new Job();
         assertNotNull(job.getRequiredSkills());
@@ -77,5 +90,14 @@ class JobTest {
         Instant now = Instant.now();
         job.setCreatedAt(now);
         assertEquals(now, job.getCreatedAt());
+    }
+
+    @Test
+    void scheduleSlotsRoundTrip() {
+        Job job = new Job();
+        job.setScheduleSlots(List.of(new JobScheduleSlot(1, "09:00", "11:00")));
+        assertEquals(1, job.getScheduleSlots().size());
+        assertEquals(1, job.getScheduleSlots().get(0).getDayOfWeek());
+        assertEquals("09:00", job.getScheduleSlots().get(0).getStartTime());
     }
 }

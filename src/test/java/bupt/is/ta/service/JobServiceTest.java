@@ -204,6 +204,26 @@ class JobServiceTest {
     }
 
     @Test
+    void searchOpenJobs_jobTypeFilter_returnsOnlyMatchingType() throws Exception {
+        String moduleId = uid();
+        String invigId = uid();
+        Job module = buildJob(moduleId, "MO-TYPE", true);
+        module.setJobType(Job.JobType.MODULE_TA);
+        service.save(module);
+
+        Job invig = buildJob(invigId, "MO-TYPE", true);
+        invig.setJobType(Job.JobType.INVIGILATION);
+        invig.setCourseName("Exam Hall Support");
+        service.save(invig);
+
+        JobService.JobSearchResult result = service.searchOpenJobs("", Job.JobType.INVIGILATION);
+
+        assertFalse(result.getJobs().isEmpty());
+        assertTrue(result.getJobs().stream().allMatch(j -> j.getJobType() == Job.JobType.INVIGILATION));
+        assertTrue(result.getJobs().stream().anyMatch(j -> invigId.equals(j.getId())));
+    }
+
+    @Test
     void updateOpenState_changesAvailability() throws Exception {
         String id = uid();
         service.save(buildJob(id, "MO-STATE", true));

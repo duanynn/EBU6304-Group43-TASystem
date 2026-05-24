@@ -2,7 +2,10 @@ package bupt.is.ta.web;
 
 import bupt.is.ta.model.Application;
 import bupt.is.ta.model.Config;
+import bupt.is.ta.model.Job;
 import bupt.is.ta.model.User;
+import bupt.is.ta.service.ApplicationService;
+import bupt.is.ta.service.JobService;
 import bupt.is.ta.service.UserService;
 import bupt.is.ta.store.DataStore;
 import jakarta.servlet.ServletException;
@@ -10,6 +13,7 @@ import jakarta.servlet.annotation.WebServlet;
 import jakarta.servlet.http.HttpServlet;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import jakarta.servlet.http.HttpSession;
 
 import java.io.IOException;
 import java.util.Comparator;
@@ -17,10 +21,39 @@ import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 
-@WebServlet({"/admin/overview", "/admin/workload", "/admin/users", "/admin/config"})
+@WebServlet({"/admin/overview", "/admin/workload", "/admin/users", "/admin/config", "/admin/openJobs"})
 public class AdminController extends HttpServlet {
 
+    /** Default password applied when admin resets an MO account. */
+    public static final String DEFAULT_MO_RESET_PASSWORD = "111";
+
+    public static class OpenJobRow {
+        private final Job job;
+        private final User mo;
+        private final long applicationCount;
+
+        public OpenJobRow(Job job, User mo, long applicationCount) {
+            this.job = job;
+            this.mo = mo;
+            this.applicationCount = applicationCount;
+        }
+
+        public Job getJob() {
+            return job;
+        }
+
+        public User getMo() {
+            return mo;
+        }
+
+        public long getApplicationCount() {
+            return applicationCount;
+        }
+    }
+
     private final UserService userService = new UserService();
+    private final JobService jobService = new JobService();
+    private final ApplicationService applicationService = new ApplicationService();
     private final DataStore store = DataStore.getInstance();
 
     @Override
@@ -31,6 +64,7 @@ public class AdminController extends HttpServlet {
             case "/admin/workload" -> showWorkload(req, resp);
             case "/admin/users" -> showUsers(req, resp);
             case "/admin/config" -> showConfig(req, resp);
+            case "/admin/openJobs" -> showOpenJobs(req, resp);
             default -> resp.sendError(HttpServletResponse.SC_NOT_FOUND);
         }
     }
@@ -40,7 +74,13 @@ public class AdminController extends HttpServlet {
         String path = req.getServletPath();
         try {
             switch (path) {
-                case "/admin/users" -> handleCreateMo(req, resp);
+                case "/admin/users" -> {
+                    if ("resetMoPassword".equals(trim(req.getParameter("action")))) {
+                        handleResetMoPassword(req, resp);
+                    } else {
+                        handleCreateMo(req, resp);
+                    }
+                }
                 case "/admin/config" -> handleUpdateConfig(req, resp);
                 default -> resp.sendError(HttpServletResponse.SC_METHOD_NOT_ALLOWED);
             }
@@ -68,6 +108,7 @@ public class AdminController extends HttpServlet {
         req.setAttribute("totalInterviewing", totalInterviewing);
         req.setAttribute("totalAccepted", totalAccepted);
         req.setAttribute("totalRejected", totalRejected);
+        req.setAttribute("currentSemester", store.getConfig().getCurrentSemester());
         req.getRequestDispatcher("/admin/overview.jsp").forward(req, resp);
     }
 
@@ -86,14 +127,53 @@ public class AdminController extends HttpServlet {
         Map<String, User> userMap = store.getUsers().stream()
                 .collect(Collectors.toMap(User::getId, u -> u, (a, b) -> a));
 
+        int maxCourses = store.getConfig().getMaxCoursesPerTA();
         req.setAttribute("workload", sorted);
         req.setAttribute("userMap", userMap);
+        req.setAttribute("maxCoursesPerTA", maxCourses);
         req.getRequestDispatcher("/admin/workload.jsp").forward(req, resp);
     }
 
     private void showUsers(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
+        var session = req.getSession(false);
+        if (session != null) {
+            Object msg = session.getAttribute("adminMessage");
+            if (msg instanceof String s && !s.isBlank()) {
+                req.setAttribute("adminMessage", s);
+                Object type = session.getAttribute("adminMessageType");
+                req.setAttribute("adminMessageType", type instanceof String t && !t.isBlank() ? t : "info");
+                session.removeAttribute("adminMessage");
+                session.removeAttribute("adminMessageType");
+            }
+        }
         req.setAttribute("users", store.getUsers());
+        req.setAttribute("moUsers", store.getUsers().stream()
+                .filter(u -> u.getRole() == User.Role.MO)
+                .sorted(Comparator.comparing(User::getId))
+                .toList());
         req.getRequestDispatcher("/admin/users.jsp").forward(req, resp);
+    }
+
+    private void showOpenJobs(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
+        boolean openOnly = !"all".equalsIgnoreCase(trim(req.getParameter("filter")));
+        Map<String, User> userMap = store.getUsers().stream()
+                .collect(Collectors.toMap(User::getId, u -> u, (a, b) -> a));
+        List<OpenJobRow> rows = store.getJobs().stream()
+                .filter(j -> !openOnly || j.isOpen())
+                .sorted(Comparator.comparing(Job::getCourseName, Comparator.nullsLast(String::compareToIgnoreCase)))
+                .map(j -> {
+                    User mo = userMap.get(j.getMoId());
+                    long count = applicationService.listByJob(j.getId()).size();
+                    return new OpenJobRow(j, mo, count);
+                })
+                .toList();
+        req.setAttribute("openJobRows", rows);
+        req.setAttribute("openOnly", openOnly);
+        req.getRequestDispatcher("/admin/openJobs.jsp").forward(req, resp);
+    }
+
+    private String trim(String value) {
+        return value == null ? "" : value.trim();
     }
 
     private void showConfig(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
@@ -111,7 +191,15 @@ public class AdminController extends HttpServlet {
         if (c.getDashscopeApiKey() == null) {
             c.setDashscopeApiKey("");
         }
+        if (c.getCurrentSemester() == null || c.getCurrentSemester().isBlank()) {
+            c.setCurrentSemester("2025-2026-S2");
+        }
+        if (c.getApplicationDeadline() == null) {
+            c.setApplicationDeadline("");
+        }
         req.setAttribute("configMaxCourses", c.getMaxCoursesPerTA());
+        req.setAttribute("configCurrentSemester", c.getCurrentSemester());
+        req.setAttribute("configApplicationDeadline", c.getApplicationDeadline());
         req.setAttribute("configCvPath", c.getCvRelativePath());
         req.setAttribute("configStorageMode", c.getStorageMode());
         req.setAttribute("dashscopeApiKey", c.getDashscopeApiKey());
@@ -161,6 +249,41 @@ public class AdminController extends HttpServlet {
         resp.sendRedirect(req.getContextPath() + "/admin/users");
     }
 
+    private void handleResetMoPassword(HttpServletRequest req, HttpServletResponse resp) throws Exception {
+        HttpSession session = req.getSession(false);
+        String redirect = req.getContextPath() + "/admin/users";
+
+        String moId = trim(req.getParameter("moId"));
+        if (moId.isBlank()) {
+            flashAdmin(session, "Please select an MO account.", "error");
+            resp.sendRedirect(redirect);
+            return;
+        }
+
+        User mo = userService.findById(moId).orElse(null);
+        if (mo == null || mo.getRole() != User.Role.MO) {
+            flashAdmin(session, "MO account not found: " + moId, "error");
+            resp.sendRedirect(redirect);
+            return;
+        }
+
+        mo.setPassword(DEFAULT_MO_RESET_PASSWORD);
+        userService.save(mo);
+        flashAdmin(session,
+                "Password for MO " + mo.getId() + " (" + mo.getName() + ") has been reset to default: "
+                        + DEFAULT_MO_RESET_PASSWORD + ".",
+                "success");
+        resp.sendRedirect(redirect);
+    }
+
+    private static void flashAdmin(jakarta.servlet.http.HttpSession session, String message, String type) {
+        if (session == null) {
+            return;
+        }
+        session.setAttribute("adminMessage", message);
+        session.setAttribute("adminMessageType", type);
+    }
+
     private void handleUpdateConfig(HttpServletRequest req, HttpServletResponse resp) throws Exception {
         String maxStr = req.getParameter("maxCoursesPerTA");
         int maxCourses = 2;
@@ -175,6 +298,8 @@ public class AdminController extends HttpServlet {
         String dashscopeApiKey = req.getParameter("dashscopeApiKey");
         String dashscopeEndpoint = req.getParameter("dashscopeEndpoint");
         String dashscopeModel = req.getParameter("dashscopeModel");
+        String currentSemester = req.getParameter("currentSemester");
+        String applicationDeadline = req.getParameter("applicationDeadline");
         if (cvRelativePath == null) cvRelativePath = "/WEB-INF/data/cvs";
         if (storageMode == null) storageMode = "WEBAPP";
         if (dashscopeApiKey == null) dashscopeApiKey = "";
@@ -192,6 +317,11 @@ public class AdminController extends HttpServlet {
         config.setDashscopeApiKey(dashscopeApiKey.trim());
         config.setDashscopeEndpoint(dashscopeEndpoint.trim());
         config.setDashscopeModel(dashscopeModel.trim());
+        if (currentSemester == null || currentSemester.isBlank()) {
+            currentSemester = "2025-2026-S2";
+        }
+        config.setCurrentSemester(currentSemester.trim());
+        config.setApplicationDeadline(applicationDeadline == null ? "" : applicationDeadline.trim());
 
         synchronized (store) {
             store.updateConfig(config);

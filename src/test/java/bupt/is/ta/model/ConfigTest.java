@@ -16,6 +16,8 @@ class ConfigTest {
         assertEquals("https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions",
                 cfg.getDashscopeEndpoint());
         assertEquals("qwen-plus", cfg.getDashscopeModel());
+        assertEquals("2025-2026-S2", cfg.getCurrentSemester());
+        assertEquals("", cfg.getApplicationDeadline());
     }
 
     @Test
@@ -27,6 +29,8 @@ class ConfigTest {
         cfg.setDashscopeApiKey("sk-abc123");
         cfg.setDashscopeEndpoint("https://example.com/v1/chat");
         cfg.setDashscopeModel("qwen-max");
+        cfg.setCurrentSemester("2026-2027-S1");
+        cfg.setApplicationDeadline("2026-12-31T00:00:00Z");
 
         assertEquals(5, cfg.getMaxCoursesPerTA());
         assertEquals("/data/cvs", cfg.getCvRelativePath());
@@ -34,6 +38,8 @@ class ConfigTest {
         assertEquals("sk-abc123", cfg.getDashscopeApiKey());
         assertEquals("https://example.com/v1/chat", cfg.getDashscopeEndpoint());
         assertEquals("qwen-max", cfg.getDashscopeModel());
+        assertEquals("2026-2027-S1", cfg.getCurrentSemester());
+        assertEquals("2026-12-31T00:00:00Z", cfg.getApplicationDeadline());
     }
 
     @Test

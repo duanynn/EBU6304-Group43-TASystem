@@ -1,5 +1,9 @@
 package bupt.is.ta.service;
 
+import bupt.is.ta.model.Job;
+import bupt.is.ta.model.JobScheduleSlot;
+import bupt.is.ta.model.User;
+import bupt.is.ta.model.UserProfile;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -197,6 +201,27 @@ class SkillMatchServiceTest {
                 "", "", false);
 
         assertEquals(1.0, result.getScore(), 1e-9);
+    }
+
+    @Test
+    void mergeScheduleFit_attachesScheduleToCachedMatch() {
+        UserProfile.JobAiAdviceCache cache = new UserProfile.JobAiAdviceCache();
+        cache.setAiScore(80);
+        cache.setAiAdvice("Cached advice");
+        cache.setAiFitSummary("Cached summary");
+        cache.setAiGenerated(true);
+
+        Job job = new Job();
+        job.setScheduleSlots(List.of(new JobScheduleSlot(1, "10:00", "12:00")));
+        User user = new User();
+        user.setAvailableSlots(List.of(new JobScheduleSlot(1, "09:00", "12:00")));
+
+        SkillMatchService.MatchResult cached = service.fromJobAdviceCache(cache, List.of("Java"), List.of("Java"));
+        assertFalse(cached.hasScheduleFit());
+
+        SkillMatchService.MatchResult merged = service.mergeScheduleFit(cached, job, user);
+        assertTrue(merged.hasScheduleFit());
+        assertEquals(100, merged.getScheduleScore());
     }
 
     @Test

@@ -37,7 +37,9 @@ class MOControllerTest {
         when(req.getParameter("courseName")).thenReturn("Software Engineering");
         when(req.getParameter("requiredCount")).thenReturn("2");
         when(req.getParameterValues("requiredSkills")).thenReturn(new String[]{"Java, Git"});
-        when(req.getParameter("requiredWorkTime")).thenReturn("8 hrs weekly");
+        when(req.getParameterValues("slotDay")).thenReturn(new String[]{"1"});
+        when(req.getParameterValues("slotStart")).thenReturn(new String[]{"09:00"});
+        when(req.getParameterValues("slotEnd")).thenReturn(new String[]{"11:00"});
         when(resp.getWriter()).thenReturn(new PrintWriter(body));
 
         controller.doPost(req, resp);
@@ -56,7 +58,9 @@ class MOControllerTest {
         when(req.getParameter("courseName")).thenReturn(courseName);
         when(req.getParameter("requiredCount")).thenReturn("2");
         when(req.getParameterValues("requiredSkills")).thenReturn(new String[]{"Java, SQL"});
-        when(req.getParameter("requiredWorkTime")).thenReturn("Friday");
+        when(req.getParameterValues("slotDay")).thenReturn(new String[]{"5"});
+        when(req.getParameterValues("slotStart")).thenReturn(new String[]{"14:00"});
+        when(req.getParameterValues("slotEnd")).thenReturn(new String[]{"16:00"});
         when(req.getParameter("description")).thenReturn("Support labs and office hours.");
         when(req.getContextPath()).thenReturn("/ta-recruitment-system");
 
@@ -68,6 +72,8 @@ class MOControllerTest {
                 .orElseThrow();
         assertEquals("Support labs and office hours.", saved.getDescription());
         assertEquals("0000000001", saved.getMoId());
+        assertFalse(saved.getScheduleSlots().isEmpty());
+        assertEquals("Fri 14:00-16:00", saved.getRequiredWorkTime());
         verify(resp).sendRedirect("/ta-recruitment-system/mo/dashboard");
     }
 

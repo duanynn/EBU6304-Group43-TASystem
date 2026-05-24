@@ -90,8 +90,17 @@ public class JobService {
     }
 
     public JobSearchResult searchOpenJobs(String query) {
+        return searchOpenJobs(query, null);
+    }
+
+    public JobSearchResult searchOpenJobs(String query, Job.JobType jobTypeFilter) {
         String cleanQuery = query == null ? "" : query.trim();
         List<Job> openJobs = listOpenJobs();
+        if (jobTypeFilter != null) {
+            openJobs = openJobs.stream()
+                    .filter(j -> jobTypeFilter == j.getJobType())
+                    .collect(Collectors.toList());
+        }
         List<String> queryTerms = tokenize(cleanQuery);
         if (queryTerms.isEmpty()) {
             List<Job> ordered = openJobs.stream()
@@ -183,6 +192,7 @@ public class JobService {
         addTokens(tokens, job.getCourseName(), 3);
         addTokens(tokens, job.getDescription(), 2);
         addTokens(tokens, job.getRequiredWorkTime(), 1);
+        addTokens(tokens, job.getJobType() == null ? "module" : job.getJobType().name().toLowerCase(Locale.ROOT).replace('_', ' '), 3);
         if (job.getRequiredSkills() != null) {
             for (String skill : job.getRequiredSkills()) {
                 addTokens(tokens, skill, 4);

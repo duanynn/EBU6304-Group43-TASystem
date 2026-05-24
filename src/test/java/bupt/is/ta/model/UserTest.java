@@ -31,6 +31,14 @@ class UserTest {
     }
 
     @Test
+    void availableSlotsRoundTrip() {
+        User user = new User();
+        user.setAvailableSlots(List.of(new JobScheduleSlot(2, "10:00", "12:00")));
+        assertEquals(1, user.getAvailableSlots().size());
+        assertEquals(2, user.getAvailableSlots().get(0).getDayOfWeek());
+    }
+
+    @Test
     void availableTimeNullIsNormalizedToEmpty() {
         User u = new User();
         u.setAvailableTime(null);

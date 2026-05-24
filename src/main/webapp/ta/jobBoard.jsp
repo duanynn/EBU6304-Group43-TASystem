@@ -6,6 +6,10 @@
 <%@ page import="bupt.is.ta.model.Application" %>
 <%@ page import="bupt.is.ta.service.SkillMatchService" %>
 <%@ page import="bupt.is.ta.web.TAController" %>
+<%@ page import="bupt.is.ta.util.JobDisplayUtil" %>
+<%@ page import="bupt.is.ta.util.JobScheduleUtil" %>
+<%@ page import="java.util.Set" %>
+<%@ page import="java.util.Map" %>
 <%!
     private String h(Object value) {
         if (value == null) return "";
@@ -40,6 +44,23 @@
     if (resultCount == null) resultCount = jobs.size();
     User current = (User) session.getAttribute("currentUser");
     Boolean triggerBackgroundAi = (Boolean) request.getAttribute("triggerBackgroundAi");
+    Boolean applicationOpen = (Boolean) request.getAttribute("applicationOpen");
+    if (applicationOpen == null) applicationOpen = Boolean.TRUE;
+    String currentSemester = (String) request.getAttribute("currentSemester");
+    if (currentSemester == null) currentSemester = "";
+    String applicationDeadlineDisplay = (String) request.getAttribute("applicationDeadlineDisplay");
+    if (applicationDeadlineDisplay == null) applicationDeadlineDisplay = "";
+    String searchJobType = (String) request.getAttribute("searchJobType");
+    if (searchJobType == null) searchJobType = "";
+    Set<String> conflictJobIds = (Set<String>) request.getAttribute("conflictJobIds");
+    if (conflictJobIds == null) conflictJobIds = java.util.Set.of();
+    Map<String, Application> applicationByJobId = (Map<String, Application>) request.getAttribute("applicationByJobId");
+    if (applicationByJobId == null) applicationByJobId = Map.of();
+    Long interviewPendingCount = (Long) request.getAttribute("interviewPendingCount");
+    if (interviewPendingCount == null) interviewPendingCount = 0L;
+    @SuppressWarnings("unchecked")
+    List<Application> pendingInterviewApps = (List<Application>) request.getAttribute("pendingInterviewApps");
+    if (pendingInterviewApps == null) pendingInterviewApps = List.of();
     int bestFit = 0;
     int strongFitCount = 0;
     for (Job item : jobs) {
@@ -56,13 +77,18 @@
     <title>Job Board - TA Recruitment System</title>
     <link rel="stylesheet" href="<%= request.getContextPath() %>/css/style.css?v=20260518-ui2">
 </head>
-<body>
-<header class="app-header">
+<body class="layout-wide">
+<header class="app-header app-header-with-avatar">
     <h1>TA Recruitment System - Student Portal</h1>
-    <span class="user-info"><%= h(current != null ? current.getName() : "") %> <a href="<%= request.getContextPath() %>/login">Logout</a></span>
+    <span class="user-info user-info-with-avatar">
+        <jsp:include page="/WEB-INF/jsp/avatar.jsp"><jsp:param name="size" value="36"/></jsp:include>
+        <%= h(current != null ? current.getName() : "") %>
+        <jsp:include page="/WEB-INF/jsp/account-menu.jsp"/>
+    </span>
 </header>
 <nav class="app-nav">
     <a href="<%= request.getContextPath() %>/ta/jobs">Job Board</a>
+    <a href="<%= request.getContextPath() %>/ta/schedule">My Schedule<% if (interviewPendingCount > 0) { %> <span class="nav-badge"><%= interviewPendingCount %></span><% } %></a>
     <a href="<%= request.getContextPath() %>/ta/applications">My Applications</a>
     <a href="<%= request.getContextPath() %>/ta/profile">My Profile</a>
 </nav>
@@ -71,6 +97,9 @@
         <div>
             <h2 class="page-title">Open Positions</h2>
             <p class="page-subtitle">
+                Semester <%= h(currentSemester) %>
+                <% if (!applicationDeadlineDisplay.isBlank()) { %> | Deadline: <%= h(applicationDeadlineDisplay) %><% } %>
+                <br>
                 <%= Boolean.TRUE.equals(searchPerformed)
                         ? resultCount + " BM25 result(s) from " + totalOpenJobs + " open position(s)"
                         : totalOpenJobs + " open position(s)" %>
@@ -78,8 +107,17 @@
         </div>
         <a class="btn btn-secondary" href="<%= request.getContextPath() %>/ta/profile">Update Profile</a>
     </div>
+    <% if (!Boolean.TRUE.equals(applicationOpen)) { %>
+    <div class="alert alert-warning">The application period has closed. You can still browse positions, but new applications are disabled.</div>
+    <% } %>
     <% if (jobBoardHint != null && !jobBoardHint.isBlank()) { %>
     <div class="alert alert-warning"><%= h(jobBoardHint) %></div>
+    <% } %>
+    <% if (interviewPendingCount > 0) { %>
+    <div class="alert alert-warning interview-pending-alert">
+        <strong><%= interviewPendingCount %> interview invitation(s)</strong> need your response.
+        <a class="btn btn-small" href="<%= request.getContextPath() %>/ta/applications">Review &amp; respond</a>
+    </div>
     <% } %>
 
     <% if (Boolean.TRUE.equals(triggerBackgroundAi)) { %>
@@ -90,6 +128,14 @@
         <form class="toolbar-form" method="get" action="<%= request.getContextPath() %>/ta/jobs">
             <label>Search
                 <input type="text" name="q" value="<%= h(searchQuery) %>" placeholder="Course, Java, lab, Friday">
+            </label>
+            <label>Job type
+                <select name="type">
+                    <option value="" <%= searchJobType.isBlank() ? "selected" : "" %>>All types</option>
+                    <option value="MODULE_TA" <%= "MODULE_TA".equals(searchJobType) ? "selected" : "" %>>Module TA</option>
+                    <option value="INVIGILATION" <%= "INVIGILATION".equals(searchJobType) ? "selected" : "" %>>Invigilation</option>
+                    <option value="OTHER" <%= "OTHER".equals(searchJobType) ? "selected" : "" %>>Other</option>
+                </select>
             </label>
             <label>Sort
                 <select name="sort">
@@ -130,7 +176,9 @@
                 int relevance = searchScores.getOrDefault(job.getId(), 0);
                 String fitClass = fit >= 80 ? "fit-high" : (fit >= 55 ? "fit-mid" : "fit-low");
                 List<String> skills = job.getRequiredSkills() == null ? java.util.List.of() : job.getRequiredSkills();
-                String workTime = job.getRequiredWorkTime() == null || job.getRequiredWorkTime().isBlank() ? "Time not specified" : job.getRequiredWorkTime();
+                String workTime = JobScheduleUtil.displayWorkTime(job);
+                if ("-".equals(workTime)) workTime = "Time not specified";
+                boolean scheduleConflict = conflictJobIds.contains(job.getId());
                 String description = job.getDescription() == null || job.getDescription().isBlank() ? "No description has been provided yet. Review the required skills and working time before applying." : job.getDescription();
                 TAController.JobAdviceView adviceView = jobAdviceByJobId.get(job.getId());
                 SkillMatchService.MatchResult match = adviceView == null ? null : adviceView.getMatch();
@@ -142,9 +190,23 @@
                 Application.Status existingStatus = appliedJobStatus.get(job.getId());
             %>
             <article class="job-board-card">
+                <% if (existingStatus == Application.Status.INTERVIEWING) {
+                    Application myApp = applicationByJobId.get(job.getId());
+                    String inv = myApp != null ? JobScheduleUtil.formatInterviewSlot(myApp.getInterviewSlot()) : "";
+                    if (inv.isBlank()) inv = "See My Applications for details";
+                %>
+                <div class="alert alert-info"><strong>Interview scheduled:</strong> <%= h(inv) %>
+                    <% if (myApp != null && !myApp.getInterviewMessage().isBlank()) { %> — <%= h(myApp.getInterviewMessage().length() > 80 ? myApp.getInterviewMessage().substring(0, 80) + "..." : myApp.getInterviewMessage()) %><% } %>
+                </div>
+                <% } %>
+                <% if (match != null && match.hasScheduleFit() && match.getScheduleScore() < 50) { %>
+                <div class="alert alert-warning"><%= h(match.getScheduleSummary()) %>. Consider updating <a href="<%= request.getContextPath() %>/ta/profile">your availability</a>.</div>
+                <% } else if (match != null && match.hasScheduleFit()) { %>
+                <p class="muted schedule-fit-hint"><%= h(match.getScheduleSummary()) %></p>
+                <% } %>
                 <div class="job-card-head">
                     <div class="job-card-title">
-                        <span class="eyebrow">TA role</span>
+                        <span class="job-type-badge <%= JobDisplayUtil.jobTypeCssClass(job) %>"><%= h(JobDisplayUtil.jobTypeLabel(job)) %></span>
                         <h3><%= h(job.getCourseName()) %></h3>
                         <p><%= h(workTime) %> - <%= job.getRequiredCount() %> opening<%= job.getRequiredCount() == 1 ? "" : "s" %></p>
                     </div>
@@ -189,8 +251,12 @@
                     <span class="muted">Job ID: <%= h(job.getId()) %></span>
                     <% if (existingStatus != null) { %>
                     <span class="btn btn-small btn-secondary disabled-action">
-                        <%= existingStatus == Application.Status.ACCEPTED ? "Accepted" : "Applied (" + existingStatus + ")" %>
+                        <%= existingStatus == Application.Status.ACCEPTED ? "Accepted" : (existingStatus == Application.Status.INTERVIEWING ? "Interviewing" : "Applied (" + existingStatus + ")") %>
                     </span>
+                    <% } else if (!Boolean.TRUE.equals(applicationOpen)) { %>
+                    <span class="btn btn-small btn-secondary disabled-action">Applications closed</span>
+                    <% } else if (scheduleConflict) { %>
+                    <span class="btn btn-small btn-secondary disabled-action" title="This job overlaps with another position you already applied for.">Schedule conflict</span>
                     <% } else { %>
                     <form method="post" action="<%= request.getContextPath() %>/ta/apply">
                         <input type="hidden" name="jobId" value="<%= h(job.getId()) %>"/>

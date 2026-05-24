@@ -3,6 +3,7 @@ package bupt.is.ta.store;
 import bupt.is.ta.model.Application;
 import bupt.is.ta.model.Config;
 import bupt.is.ta.model.Job;
+import bupt.is.ta.model.JobScheduleSlot;
 import bupt.is.ta.model.User;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
@@ -20,11 +21,13 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Stream;
 
 import bupt.is.ta.util.InstantAdapter;
+import bupt.is.ta.util.JobScheduleUtil;
 
 /**
  * Singleton with in-memory cache + JSON persistence.
@@ -77,10 +80,19 @@ public class DataStore {
         if (users.isEmpty()) {
             seedDefaultUsers();
             saveUsers();
+        } else {
+            if (ensureDefaultTestAccounts()) {
+                saveUsers();
+            }
+        }
+        if (migrateStructuredSchedules()) {
+            saveUsers();
         }
         loadJobs();
         if (jobs.isEmpty()) {
             seedDefaultJob();
+            saveJobs();
+        } else if (migrateStructuredSchedules()) {
             saveJobs();
         }
         loadApplications();
@@ -126,28 +138,112 @@ public class DataStore {
 
     /** Seed default test accounts on first startup if user list is empty. */
     private void seedDefaultUsers() {
+        users.add(buildDefaultTa("2021001001", "Test Student A"));
+        users.add(buildDefaultTa("2021001002", "Test Student B"));
+        users.add(buildDefaultMo());
+        users.add(buildDefaultAdmin());
+    }
+
+    /**
+     * Patch known demo accounts when data already exists (e.g. after feature upgrades).
+     * @return true if any user was modified
+     */
+    /** Back-fill structured schedule slots from legacy text fields. */
+    private boolean migrateStructuredSchedules() {
+        boolean changed = false;
+        for (User user : users) {
+            if (JobScheduleUtil.materializeAvailabilitySlots(user)) {
+                changed = true;
+            }
+        }
+        for (Job job : jobs) {
+            if (JobScheduleUtil.materializeJobScheduleSlots(job)) {
+                changed = true;
+            }
+        }
+        return changed;
+    }
+
+    private boolean ensureDefaultTestAccounts() {
+        boolean changed = false;
+        changed |= patchUserById("2021001001", this::applyDefaultTaProfile);
+        changed |= patchUserById("2021001002", this::applyDefaultTaProfile);
+        changed |= patchUserById("231220367", this::applyDefaultTaProfile);
+        changed |= patchUserById("0000000001", this::applyDefaultMoProfile);
+        return changed;
+    }
+
+    private boolean patchUserById(String id, java.util.function.Consumer<User> patch) {
+        for (User user : users) {
+            if (id.equals(user.getId())) {
+                patch.accept(user);
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private User buildDefaultTa(String id, String name) {
         User ta = new User();
-        ta.setId("2021001001");
+        ta.setId(id);
         ta.setPassword("123");
         ta.setRole(User.Role.TA);
-        ta.setName("Test Student");
-        ta.setGpa(3.8);
-        ta.setSkillTags(List.of("Java", "Python"));
-        users.add(ta);
+        ta.setName(name);
+        applyDefaultTaProfile(ta);
+        return ta;
+    }
 
+    private void applyDefaultTaProfile(User ta) {
+        if (ta == null || ta.getRole() != User.Role.TA) {
+            return;
+        }
+        ta.setGpa(3.8);
+        ta.setSkillTags(List.of("Java", "Python", "Git"));
+        ta.setIdCardSuffix(suffixFromStudentId(ta.getId()));
+        List<JobScheduleSlot> slots = new ArrayList<>();
+        slots.add(new JobScheduleSlot(1, "08:00", "12:00"));
+        slots.add(new JobScheduleSlot(3, "14:00", "18:00"));
+        ta.setAvailableSlots(slots);
+        ta.setAvailableTime("Mon 08:00-12:00; Wed 14:00-18:00");
+        if (ta.getAvatarType() == null || ta.getAvatarType() == User.AvatarType.DEFAULT) {
+            ta.setAvatarType(User.AvatarType.PRESET);
+            ta.setAvatarKey("preset/2.png");
+        }
+    }
+
+    private static String suffixFromStudentId(String studentId) {
+        if (studentId == null || studentId.length() < 6) {
+            return "100001";
+        }
+        return studentId.substring(studentId.length() - 6);
+    }
+
+    private User buildDefaultMo() {
         User mo = new User();
         mo.setId("0000000001");
         mo.setPassword("123");
         mo.setRole(User.Role.MO);
         mo.setName("Test Instructor");
-        users.add(mo);
+        applyDefaultMoProfile(mo);
+        return mo;
+    }
 
+    private void applyDefaultMoProfile(User mo) {
+        if (mo == null || mo.getRole() != User.Role.MO) {
+            return;
+        }
+        if (mo.getCollege() == null || mo.getCollege().isBlank()) {
+            mo.setCollege("School of Computer Science");
+        }
+    }
+
+    private User buildDefaultAdmin() {
         User admin = new User();
         admin.setId("admin");
         admin.setPassword("admin");
         admin.setRole(User.Role.ADMIN);
         admin.setName("Administrator");
-        users.add(admin);
+        return admin;
     }
 
     /** Seed one sample job on first startup if job list is empty. */
@@ -158,8 +254,13 @@ public class DataStore {
         job.setMoId("0000000001");
         job.setRequiredCount(2);
         job.setRequiredSkills(List.of("Java", "Git"));
-        job.setRequiredWorkTime("8 hrs weekly");
+        List<JobScheduleSlot> slots = new ArrayList<>();
+        slots.add(new JobScheduleSlot(1, "09:00", "11:00"));
+        slots.add(new JobScheduleSlot(3, "14:00", "16:00"));
+        job.setScheduleSlots(slots);
+        job.setRequiredWorkTime("Mon 09:00-11:00; Wed 14:00-16:00");
         job.setDescription("Support Software Engineering tutorials, lab exercises, assignment guidance, and student Q&A. Candidates should be comfortable with Java development, Git workflows, and clear technical communication.");
+        job.setJobType(Job.JobType.MODULE_TA);
         job.setOpen(true);
         jobs.add(job);
     }
@@ -202,7 +303,12 @@ public class DataStore {
             List<Job> loaded = gson.fromJson(reader, listType);
             jobs.clear();
             if (loaded != null) {
-                jobs.addAll(loaded);
+                for (Job job : loaded) {
+                    if (job != null && job.getJobType() == null) {
+                        job.setJobType(Job.JobType.MODULE_TA);
+                    }
+                    jobs.add(job);
+                }
             }
         }
     }
@@ -255,6 +361,12 @@ public class DataStore {
                 if (this.config.getDashscopeApiKey() == null) {
                     this.config.setDashscopeApiKey("");
                 }
+                if (this.config.getCurrentSemester() == null || this.config.getCurrentSemester().isBlank()) {
+                    this.config.setCurrentSemester("2025-2026-S2");
+                }
+                if (this.config.getApplicationDeadline() == null) {
+                    this.config.setApplicationDeadline("");
+                }
             }
         } catch (Exception e) {
             this.config = new Config();
@@ -269,6 +381,74 @@ public class DataStore {
 
     public synchronized List<User> getUsers() {
         return Collections.unmodifiableList(users);
+    }
+
+    /**
+     * Read a single user record from {@code users/{id}.json} without using the in-memory cache.
+     */
+    public synchronized Optional<User> loadUserFromDisk(String id) throws IOException {
+        if (!initialized || id == null || id.isBlank()) {
+            return Optional.empty();
+        }
+        Path userFile = usersDir.resolve(sanitizeFileName(id) + ".json");
+        if (!Files.exists(userFile)) {
+            return Optional.empty();
+        }
+        try (Reader reader = Files.newBufferedReader(userFile, StandardCharsets.UTF_8)) {
+            User loaded = gson.fromJson(reader, User.class);
+            if (loaded == null) {
+                return Optional.empty();
+            }
+            if (loaded.getId() == null || loaded.getId().isBlank()) {
+                loaded.setId(id);
+            }
+            return Optional.of(loaded);
+        }
+    }
+
+    /**
+     * Password stored for {@code id}: per-user JSON file first, then in-memory cache.
+     */
+    public synchronized String resolveStoredPassword(String id) {
+        if (!initialized || id == null || id.isBlank()) {
+            return null;
+        }
+        try {
+            Optional<User> fromDisk = loadUserFromDisk(id);
+            if (fromDisk.isPresent()) {
+                String password = fromDisk.get().getPassword();
+                if (password != null && !password.isBlank()) {
+                    return password;
+                }
+            }
+        } catch (IOException ignored) {
+            // fall through to memory
+        }
+        return users.stream()
+                .filter(u -> id.equals(u.getId()))
+                .map(User::getPassword)
+                .filter(p -> p != null && !p.isBlank())
+                .findFirst()
+                .orElse(null);
+    }
+
+    /**
+     * Replace the in-memory user for {@code id} with the JSON file contents (if present).
+     */
+    public synchronized void refreshUserFromDisk(String id) throws IOException {
+        Optional<User> loaded = loadUserFromDisk(id);
+        if (loaded.isPresent()) {
+            users.removeIf(u -> id.equals(u.getId()));
+            users.add(loaded.get());
+        }
+    }
+
+    public synchronized boolean passwordMatchesOnDisk(String id, String password) {
+        if (password == null || password.isBlank()) {
+            return false;
+        }
+        String stored = resolveStoredPassword(id);
+        return stored != null && stored.equals(password.trim());
     }
 
     public synchronized List<Job> getJobs() {
