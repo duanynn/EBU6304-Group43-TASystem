@@ -20,6 +20,10 @@
         <label>Password <span style="color:red">*</span>
             <input type="password" name="password" required placeholder="Set password">
         </label>
+        <label>ID card last 6 digits <span style="color:red">*</span>
+            <input type="password" name="idCardSuffix" required pattern="\d{6}" maxlength="6" placeholder="6 digits" autocomplete="off">
+        </label>
+        <p class="muted" style="margin: -8px 0 12px;">Used only if you forget your password. Never shown on your profile.</p>
         <label>Name
             <input type="text" name="name" placeholder="Defaults to student ID if empty">
         </label>
@@ -29,9 +33,21 @@
         <label>Skill Tags (optional, comma-separated)
             <input type="text" name="skillTags" placeholder="e.g. Java, Python, IELTS">
         </label>
-        <label>Available Time <span style="color:red">*</span>
-            <input type="text" name="availableTime" required placeholder="e.g. Mon evening / Wed afternoon / 8-10 hrs per week">
-        </label>
+        <label>Weekly Availability <span style="color:red">*</span></label>
+        <p class="muted" style="margin: -8px 0 10px;">Select at least one weekly time slot when you can work.</p>
+        <div id="availSlotRows" class="schedule-slot-rows">
+            <div class="schedule-slot-row">
+                <select name="availDay" required>
+                    <option value="1">Monday</option><option value="2">Tuesday</option><option value="3">Wednesday</option>
+                    <option value="4">Thursday</option><option value="5">Friday</option><option value="6">Saturday</option><option value="7">Sunday</option>
+                </select>
+                <input type="time" name="availStart" value="09:00" min="08:00" max="23:00" required>
+                <span class="schedule-slot-sep">to</span>
+                <input type="time" name="availEnd" value="12:00" min="09:00" max="23:00" required>
+                <button type="button" class="btn btn-small btn-secondary avail-remove-btn" hidden>Remove</button>
+            </div>
+        </div>
+        <button type="button" class="btn btn-small btn-secondary" id="addAvailSlotBtn" style="margin-bottom:14px;">Add availability slot</button>
         <label>Upload CV on registration (optional, PDF/DOC/DOCX, <=5MB)</label>
         <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px;">
             <label for="registerCvFileInput" class="btn btn-small btn-secondary" style="margin:0;">Choose File</label>
@@ -44,6 +60,7 @@
         </p>
     </form>
 </div>
+<script src="<%= request.getContextPath() %>/js/schedule-time.js"></script>
 <script>
     (function () {
         var fileInput = document.getElementById('registerCvFileInput');
@@ -53,6 +70,31 @@
             var name = (fileInput.files && fileInput.files.length > 0) ? fileInput.files[0].name : 'No file selected';
             fileName.textContent = name;
         });
+        var rowsContainer = document.getElementById('availSlotRows');
+        var addBtn = document.getElementById('addAvailSlotBtn');
+        function refreshRemove() {
+            var rows = rowsContainer.querySelectorAll('.schedule-slot-row');
+            rows.forEach(function (row) {
+                var btn = row.querySelector('.avail-remove-btn');
+                if (btn) btn.hidden = rows.length <= 1;
+            });
+        }
+        if (addBtn) addBtn.addEventListener('click', function () {
+            var first = rowsContainer.querySelector('.schedule-slot-row');
+            if (first) {
+                var clone = first.cloneNode(true);
+                rowsContainer.appendChild(clone);
+                if (window.ScheduleTimeUtil) window.ScheduleTimeUtil.bindRow(clone);
+                refreshRemove();
+            }
+        });
+        rowsContainer.addEventListener('click', function (e) {
+            if (e.target.classList.contains('avail-remove-btn') && rowsContainer.querySelectorAll('.schedule-slot-row').length > 1) {
+                e.target.closest('.schedule-slot-row').remove();
+                refreshRemove();
+            }
+        });
+        refreshRemove();
     })();
 </script>
 </body>

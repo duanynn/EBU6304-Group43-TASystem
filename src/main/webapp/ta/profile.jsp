@@ -38,6 +38,15 @@
     List<String> skillTags = current.getSkillTags() == null ? List.of() : current.getSkillTags();
     List<String> extractedSkills = current.getProfile().getExtractedSkills() == null ? List.of() : current.getProfile().getExtractedSkills();
     String resumeState = current.getCvPath() == null || current.getCvPath().isBlank() ? "Missing" : "Uploaded";
+    String avatarUrl = (String) request.getAttribute("avatarUrl");
+    if (avatarUrl == null) avatarUrl = request.getContextPath() + "/assets/avatars/preset/1.png";
+    @SuppressWarnings("unchecked")
+    List<String> presetAvatars = (List<String>) request.getAttribute("presetAvatars");
+    if (presetAvatars == null) presetAvatars = List.of("1.png", "2.png", "3.png", "4.png", "5.png", "6.png");
+    String selectedPreset = current.getAvatarKey();
+    if (selectedPreset != null && selectedPreset.contains("/")) {
+        selectedPreset = selectedPreset.substring(selectedPreset.lastIndexOf('/') + 1);
+    }
 %>
 <!DOCTYPE html>
 <html lang="en">
@@ -48,22 +57,41 @@
     <link rel="stylesheet" href="<%= request.getContextPath() %>/css/style.css?v=20260518-ui2">
 </head>
 <body>
-<header class="app-header">
+<header class="app-header app-header-with-avatar">
     <h1>TA Recruitment System - Student Portal</h1>
-    <span class="user-info"><%= h(current.getName()) %> <a href="<%= request.getContextPath() %>/login">Logout</a></span>
+    <span class="user-info user-info-with-avatar">
+        <jsp:include page="/WEB-INF/jsp/avatar.jsp"><jsp:param name="size" value="36"/></jsp:include>
+        <%= h(current.getName()) %>
+        <jsp:include page="/WEB-INF/jsp/account-menu.jsp"/>
+    </span>
 </header>
 <nav class="app-nav">
     <a href="<%= request.getContextPath() %>/ta/jobs">Job Board</a>
+    <a href="<%= request.getContextPath() %>/ta/schedule">My Schedule</a>
     <a href="<%= request.getContextPath() %>/ta/applications">My Applications</a>
     <a href="<%= request.getContextPath() %>/ta/profile">My Profile</a>
 </nav>
 <main class="app-main talent-main">
+    <% {
+        Object accountMsg = session.getAttribute("accountMessage");
+        if (accountMsg instanceof String s && !s.isBlank()) {
+    %>
+    <div class="alert alert-info"><%= h(s) %></div>
+    <% session.removeAttribute("accountMessage"); }} %>
     <% if (loginPromptHint != null && !loginPromptHint.isBlank()) { %>
     <div class="alert alert-warning"><%= h(loginPromptHint) %></div>
     <% } %>
     <% if (needsConfirm) { %>
     <div class="alert alert-warning" id="materialConfirmNotice">Review the parsed profile, then save. Job board fit scores will be recalculated after saving.</div>
     <% } %>
+
+    <section class="profile-hero">
+        <img src="<%= h(avatarUrl.startsWith("http") || avatarUrl.startsWith(request.getContextPath()) ? avatarUrl : request.getContextPath() + avatarUrl) %>" alt="" class="user-avatar" width="96" height="96" style="width:96px;height:96px;">
+        <div>
+            <span class="eyebrow">Profile photo</span>
+            <p class="muted">Choose a preset avatar or upload your own (max 2MB).</p>
+        </div>
+    </section>
 
     <section class="talent-hero">
         <div class="talent-identity">
@@ -200,7 +228,26 @@
                     <p class="muted">Saving refreshes your profile and the fit scores shown on the job board.</p>
                 </div>
             </div>
-            <form method="post" action="<%= request.getContextPath() %>/ta/profile" id="profileEditForm" class="talent-edit-form">
+            <form method="post" action="<%= request.getContextPath() %>/ta/profile" id="profileEditForm" class="talent-edit-form" enctype="multipart/form-data">
+                <div class="section">
+                    <h3>Avatar</h3>
+                    <div class="avatar-preset-grid">
+                        <% for (String preset : presetAvatars) {
+                            boolean checked = preset.equals(selectedPreset)
+                                    || ("preset/" + preset).equals(current.getAvatarKey());
+                        %>
+                        <label class="avatar-preset-option">
+                            <input type="radio" name="avatarPreset" value="<%= h(preset) %>" <%= checked ? "checked" : "" %> style="display:none">
+                            <img src="<%= request.getContextPath() %>/assets/avatars/preset/<%= h(preset) %>" alt="">
+                            <span><%= h(preset.replace(".png", "")) %></span>
+                        </label>
+                        <% } %>
+                    </div>
+                    <div class="form-group" style="margin-top:12px">
+                        <label>Upload photo</label>
+                        <input type="file" name="avatarFile" accept="image/png,image/jpeg,image/gif,image/webp">
+                    </div>
+                </div>
                 <div class="form-grid two-col-form">
                     <div class="form-group">
                         <label>Name</label>
@@ -214,9 +261,40 @@
                         <label>Skill Tags</label>
                         <input type="text" name="skillTags" value="<%= h(skillTags.isEmpty() ? "" : String.join(", ", skillTags)) %>" placeholder="Java, Python, Git" data-profile-edit-field/>
                     </div>
-                    <div class="form-group">
-                        <label>Available Time</label>
-                        <input type="text" name="availableTime" value="<%= h(current.getAvailableTime()) %>" placeholder="Mon evening / 8 hrs weekly" data-profile-edit-field/>
+                    <div class="form-group form-group-full">
+                        <label>Weekly Availability</label>
+                        <p class="muted">Add when you can work each week (same format as job time slots). Used for schedule fit matching.</p>
+                        <div id="availSlotRows" class="schedule-slot-rows">
+                            <% java.util.List<bupt.is.ta.model.JobScheduleSlot> availSlots = current.getAvailableSlots();
+                               if (availSlots == null || availSlots.isEmpty()) { %>
+                            <div class="schedule-slot-row">
+                                <select name="availDay" data-profile-edit-field>
+                                    <option value="1">Monday</option><option value="2">Tuesday</option><option value="3">Wednesday</option>
+                                    <option value="4">Thursday</option><option value="5">Friday</option><option value="6">Saturday</option><option value="7">Sunday</option>
+                                </select>
+                                <input type="time" name="availStart" value="09:00" min="08:00" max="23:00" data-profile-edit-field>
+                                <span class="schedule-slot-sep">to</span>
+                                <input type="time" name="availEnd" value="12:00" min="09:00" max="23:00" data-profile-edit-field>
+                                <button type="button" class="btn btn-small btn-secondary avail-remove-btn" hidden>Remove</button>
+                            </div>
+                            <% } else {
+                                for (bupt.is.ta.model.JobScheduleSlot slot : availSlots) { %>
+                            <div class="schedule-slot-row">
+                                <select name="availDay" data-profile-edit-field>
+                                    <% for (int d = 1; d <= 7; d++) {
+                                        String[] labels = {"", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"};
+                                    %>
+                                    <option value="<%= d %>" <%= slot.getDayOfWeek() == d ? "selected" : "" %>><%= labels[d] %></option>
+                                    <% } %>
+                                </select>
+                                <input type="time" name="availStart" value="<%= h(slot.getStartTime()) %>" min="08:00" max="23:00" data-profile-edit-field>
+                                <span class="schedule-slot-sep">to</span>
+                                <input type="time" name="availEnd" value="<%= h(slot.getEndTime()) %>" min="08:00" max="23:00" data-profile-edit-field>
+                                <button type="button" class="btn btn-small btn-secondary avail-remove-btn">Remove</button>
+                            </div>
+                            <% }} %>
+                        </div>
+                        <button type="button" class="btn btn-small btn-secondary" id="addAvailSlotBtn">Add availability slot</button>
                     </div>
                 </div>
                 <div class="form-group">
@@ -253,6 +331,7 @@
     </div>
 </div>
 
+<script src="<%= request.getContextPath() %>/js/schedule-time.js"></script>
 <script>
     (function () {
         var workspace = document.getElementById('profileWorkspace');
@@ -323,6 +402,42 @@
             reparseForm.addEventListener('submit', function () {
                 showMask('Re-parsing CV and updating profile insights...');
             });
+        }
+
+        var availRows = document.getElementById('availSlotRows');
+        var addAvailBtn = document.getElementById('addAvailSlotBtn');
+        function refreshAvailRemove() {
+            if (!availRows) return;
+            var rows = availRows.querySelectorAll('.schedule-slot-row');
+            rows.forEach(function (row) {
+                var btn = row.querySelector('.avail-remove-btn');
+                if (btn) btn.hidden = rows.length <= 1;
+            });
+        }
+        if (addAvailBtn && availRows) {
+            addAvailBtn.addEventListener('click', function () {
+                var first = availRows.querySelector('.schedule-slot-row');
+                if (first) {
+                    var clone = first.cloneNode(true);
+                    availRows.appendChild(clone);
+                    if (window.ScheduleTimeUtil) {
+                        window.ScheduleTimeUtil.bindRow(clone);
+                    }
+                    refreshAvailRemove();
+                    hasUnsavedEdits = true;
+                }
+            });
+            availRows.addEventListener('click', function (e) {
+                if (e.target.classList.contains('avail-remove-btn')) {
+                    var rows = availRows.querySelectorAll('.schedule-slot-row');
+                    if (rows.length > 1) {
+                        e.target.closest('.schedule-slot-row').remove();
+                        refreshAvailRemove();
+                        hasUnsavedEdits = true;
+                    }
+                }
+            });
+            refreshAvailRemove();
         }
 
         document.querySelectorAll('.app-nav a, a[href$="/login"]').forEach(function (link) {
